@@ -14,7 +14,14 @@
 
 package main
 
-import "github.com/scalog/scalog/cmd"
+import (
+	"github.com/scalog/scalog/cmd"
+	"github.com/spf13/viper"
+)
+
+func init() {
+	viper.SetDefault("port", "21024")
+}
 
 func main() {
 	cmd.Execute()
