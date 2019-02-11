@@ -1,11 +1,11 @@
 package order
 
 import (
-	"fmt"
+	"log"
 
 	"github.com/spf13/viper"
 )
 
 func Start() {
-	fmt.Printf("Ordering layer started on %s\n", viper.Get("port"))
+	log.Printf("Ordering layer started on %d\n", viper.Get("port"))
 }
