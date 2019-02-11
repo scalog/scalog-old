@@ -24,6 +24,7 @@ import (
 )
 
 var cfgFile string
+var port int
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
@@ -56,6 +57,10 @@ func init() {
 	// Cobra supports persistent flags, which, if defined here,
 	// will be global for your application.
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.scalog.yaml)")
+	rootCmd.PersistentFlags().IntVar(&port, "port", 21024, "Port to listen (default is 21024)")
+	viper.BindPFlag("port", rootCmd.PersistentFlags().Lookup("port"))
+	rootCmd.PersistentFlags().Int("id", 0, "Process id (default is 0)")
+	viper.BindPFlag("id", rootCmd.PersistentFlags().Lookup("id"))
 
 	// Cobra also supports local flags, which will only run
 	// when this action is called directly.

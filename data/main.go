@@ -6,5 +6,5 @@ import (
 )
 
 func Start() {
-	logger.Printf("Data layer started on %d\n", viper.Get("port"))
+	logger.Printf("Data layer server %d started on %d\n", viper.Get("id"), viper.Get("port"))
 }

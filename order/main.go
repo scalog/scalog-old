@@ -6,5 +6,5 @@ import (
 )
 
 func Start() {
-	logger.Printf("Ordering layer started on %d\n", viper.Get("port"))
+	logger.Printf("Ordering layer server %d started on %d\n", viper.Get("id"), viper.Get("port"))
 }
