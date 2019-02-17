@@ -1,0 +1,36 @@
+syntax = "proto3";
+
+package messages;
+
+import "google/protobuf/timestamp.proto";
+
+/*
+The file defines messages that any Order can receive
+from another machine (inclusive of clients and data)
+
+Each machine will talk to each other by using a socket
+based network connection. We will serialize these 
+messages and send them on this wire. 
+*/
+
+message Order {
+	string replica_name = 1;	// Name of the container sending this request
+  	int32 shard_id = 2;	// Shard ID that the sending container belongs to
+  	int32 replica_id = 3;	// ID of server inside of shard
+  	repeated in32 tentative_cut	// Vector of number of entries received in each server shard
+
+	enum RequestType {
+		REPORT = 0;
+		REGISTER = 1;	// For new shards
+		FINALIZE = 2;	// For scheduled finalization of shards
+	}
+
+	google.protobuf.Timestamp last_updated = 5;
+}
+
+// Should we be able to fluidly configure f?
+// We also need to be able to handle failures -- that is,
+// if we send a message, we should know when we get a response back.
+// What is a good way to handle failures like this, say for example
+// if a server sends to an ordering node and that fails, so paxos never
+// sees it? 

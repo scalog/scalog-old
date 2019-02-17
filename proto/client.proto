@@ -1,0 +1,28 @@
+syntax = "proto3";
+
+package messages;
+
+import "google/protobuf/timestamp.proto";
+
+/*
+The file defines messages that any Client can receive
+from another machine (inclusive of servers and ordering)
+
+Each machine will talk to each other by using a socket
+based network connection. We will serialize these 
+messages and send them on this wire. 
+*/
+
+message Client {
+
+	enum RequestType {
+		ACK = 1;
+	}
+
+	RequestType request_type = 1;
+	int32 cid = 2;
+	int32 csn = 3;
+	int32 global_sequence_number = 4;
+
+	google.protobuf.Timestamp last_updated = 5;
+}
