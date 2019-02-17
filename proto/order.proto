@@ -2,8 +2,6 @@ syntax = "proto3";
 
 package messages;
 
-import "google/protobuf/timestamp.proto";
-
 /*
 The file defines messages that any Order can receive
 from another machine (inclusive of clients and data)
@@ -17,15 +15,13 @@ message Order {
 	string replica_name = 1;	// Name of the container sending this request
   	int32 shard_id = 2;	// Shard ID that the sending container belongs to
   	int32 replica_id = 3;	// ID of server inside of shard
-  	repeated in32 tentative_cut = 4	// Vector of number of entries received in each server shard
+  	repeated int32 tentative_cut = 4;	// Vector of number of entries received in each server shard
 
 	enum RequestType {
 		REPORT = 0;
 		REGISTER = 1;	// For new shards
 		FINALIZE = 2;	// For scheduled finalization of shards
 	}
-
-	google.protobuf.Timestamp last_updated = 5;
 }
 
 // Questions

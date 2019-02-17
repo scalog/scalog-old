@@ -2,8 +2,6 @@ syntax = "proto3";
 
 package messages;
 
-import "google/protobuf/timestamp.proto";
-
 /*
 The file defines messages that any Server can receive
 from another machine (inclusive of clients and ordering)
@@ -33,6 +31,4 @@ message Server {
 	}
 
 	RequestType request_type = 10;
-
-	google.protobuf.Timestamp last_updated = 11;
 }
