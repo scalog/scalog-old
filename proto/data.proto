@@ -32,7 +32,7 @@ message Server {
 		TRIM = 4;	// Sent from client. Ignore implementation for now
 	}
 
-	RequestType request_type = 9;
+	RequestType request_type = 10;
 
-	google.protobuf.Timestamp last_updated = 10;
+	google.protobuf.Timestamp last_updated = 11;
 }
