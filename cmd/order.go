@@ -17,7 +17,7 @@ package cmd
 import (
 	"fmt"
 
-	"../order"
+	"github.com/scalog/scalog/order"
 	"github.com/spf13/cobra"
 )
 

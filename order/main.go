@@ -1,7 +1,7 @@
 package order
 
 import (
-	"../logger"
+	"github.com/scalog/scalog/logger"
 	"github.com/spf13/viper"
 )
 

@@ -15,7 +15,7 @@
 package main
 
 import (
-	"./cmd"
+	"github.com/scalog/scalog/cmd"
 )
 
 func main() {
