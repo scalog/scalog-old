@@ -6,12 +6,12 @@ The following assumes you're running a Unix based machine (Linux/Mac). These are
 ### Installing Go
 1. Find the right download for your system [here](https://golang.org/dl/).
 2. Set your `$GOPATH` by adding this to your `~/.bashrc`:
-    ```console
+    ```sh
     export GOPATH="$HOME/go"
     PATH=$PATH:$GOPATH/bin
     ```
     Refresh your environment variables and prepare for installing `dep` (for dependency management) by running:
-     ```console
+     ```sh
      source ~/.bashrc
      mkdir ~/go/bin
      mkdir ~/go/src
@@ -22,7 +22,7 @@ The following assumes you're running a Unix based machine (Linux/Mac). These are
 
 ### Cloning
 Run the following to clone this repository into the right place:
-```console
+```sh
 cd ~/go/src
 mkdir -p github.com/scalog
 cd github.com/scalog
