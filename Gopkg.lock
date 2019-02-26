@@ -77,19 +77,6 @@
   version = "v1.2.0"
 
 [[projects]]
-  branch = "master"
-  digest = "1:99ba84ffd161add62af346944eb07ee80cce03d855c7c325f2071726d0c90d4e"
-  name = "github.com/scalog/scalog"
-  packages = [
-    "cmd",
-    "data",
-    "logger",
-    "order",
-  ]
-  pruneopts = "UT"
-  revision = "b8eba94691c867881553fa8cd9316db966393870"
-
-[[projects]]
   digest = "1:3e39bafd6c2f4bf3c76c3bfd16a2e09e016510ad5db90dc02b88e2f565d6d595"
   name = "github.com/spf13/afero"
   packages = [
@@ -177,10 +164,6 @@
   input-imports = [
     "github.com/golang/protobuf/proto",
     "github.com/mitchellh/go-homedir",
-    "github.com/scalog/scalog/cmd",
-    "github.com/scalog/scalog/data",
-    "github.com/scalog/scalog/logger",
-    "github.com/scalog/scalog/order",
     "github.com/spf13/cobra",
     "github.com/spf13/viper",
   ]
