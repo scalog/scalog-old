@@ -2,24 +2,55 @@ package filesystem
 
 import (
 	"bufio"
-	"fmt"
 	"os"
+	"strconv"
 )
 
 var filePrefix = "log"
 var fileSuffix = ".dat"
 var recordLimit = 3
 
-// TODO: If the number of records in a file exceeds N, close it and create a new file in
-// this particular volume seamlessly.
-
-// RecordStorage is a file writer for Scalog. v1.
+// RecordStorage is a struct managing information required to write
+// information to stable storage in Scalog using files. Written files
+// are of the format log#.dat. New files will be created when the
+// presently open file has been written to [recordLimit] times
 type RecordStorage struct {
 	volumePath         string
 	file               *os.File
 	writer             *bufio.Writer
 	fileNumber         int
 	currentRecordCount int
+}
+
+// New filesystem
+func New(volumePath string) RecordStorage {
+	l := RecordStorage{volumePath, nil, nil, 1, 0}
+	l.file = createFile(volumePath, genFilename(l.fileNumber))
+	l.writer = createBufferedWriter(l.file)
+	return l
+}
+
+// WriteLog writes to stable storage via a buffer
+func (f *RecordStorage) WriteLog(gsn int, record string) {
+	_, err := f.writer.WriteString(strconv.Itoa(gsn) + "\t" + record + "\n")
+	if err != nil {
+		panic(err)
+	}
+	// Flush to force write to stable storage
+	f.writer.Flush()
+	f.currentRecordCount++
+	if f.currentRecordCount == recordLimit {
+		f.currentRecordCount = 0
+		f.file.Close()
+		f.fileNumber++
+		f.file = createFile(f.volumePath, genFilename(f.fileNumber))
+		f.writer = createBufferedWriter(f.file)
+	}
+}
+
+// Close terminates this file writer
+func (f *RecordStorage) Close() {
+	f.file.Close()
 }
 
 func check(e error) {
@@ -39,41 +70,6 @@ func createBufferedWriter(file *os.File) *bufio.Writer {
 	return w
 }
 
-func genFilename(name string) string {
-	return filePrefix + name + fileSuffix
-}
-
-// New filesystem
-func New(volumePath string) RecordStorage {
-	e := RecordStorage{volumePath, nil, nil, 0, 0}
-	e.file = createFile(volumePath, genFilename(string(e.fileNumber)))
-	e.writer = createBufferedWriter(e.file)
-	return e
-}
-
-// WriteLog writes to stable storage via a buffer
-func (f *RecordStorage) WriteLog(gsn int, record string) {
-	_, err := f.writer.WriteString(string(gsn) + "\t" + record)
-	if err != nil {
-		panic(err)
-	}
-	f.currentRecordCount++
-	if f.currentRecordCount == recordLimit {
-		f.currentRecordCount = 0
-		f.file.Close()
-		f.fileNumber++
-		f.file = createFile(f.volumePath, genFilename(string(f.fileNumber)))
-		f.writer = createBufferedWriter(f.file)
-	}
-}
-
-// Close terminates this file writer
-func (f *RecordStorage) Close() {
-	f.file.Close()
-}
-
-func main() {
-	fmt.Println("Running RecordStorage")
-	rs := New("/tmp")
-	rs.WriteLog(1, "hello")
+func genFilename(fileNum int) string {
+	return filePrefix + strconv.Itoa(fileNum) + fileSuffix
 }
