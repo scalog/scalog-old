@@ -17,9 +17,23 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/scalog/scalog/data"
+	"github.com/scalog/data"
 	"github.com/spf13/cobra"
 )
+
+func init() {
+	rootCmd.AddCommand(dataCmd)
+
+	// Here you will define your flags and configuration settings.
+
+	// Cobra supports Persistent Flags which will work for this command
+	// and all subcommands, e.g.:
+	// dataCmd.PersistentFlags().String("foo", "", "A help for foo")
+
+	// Cobra supports local flags which will only run when this command
+	// is called directly, e.g.:
+	// dataCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
+}
 
 // dataCmd represents the data command
 var dataCmd = &cobra.Command{
@@ -35,18 +49,4 @@ to quickly create a Cobra application.`,
 		fmt.Println("data called")
 		data.Start()
 	},
-}
-
-func init() {
-	rootCmd.AddCommand(dataCmd)
-
-	// Here you will define your flags and configuration settings.
-
-	// Cobra supports Persistent Flags which will work for this command
-	// and all subcommands, e.g.:
-	// dataCmd.PersistentFlags().String("foo", "", "A help for foo")
-
-	// Cobra supports local flags which will only run when this command
-	// is called directly, e.g.:
-	// dataCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 }

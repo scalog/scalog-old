@@ -1,0 +1,51 @@
+syntax = "proto3";
+
+package messages;
+
+/*
+The file defines messages that any Order can receive
+from another machine (inclusive of clients and data)
+
+Each machine will talk to each other by using a socket
+based network connection. We will serialize these 
+messages and send them on this wire. 
+*/
+
+service Order {
+    rpc Report(ReportRequest) returns (ReportResponse) {}
+
+    rpc Register(RegisterRequest) returns (RegisterResponse) {}
+
+    rpc Finalize(FinalizeRequest) returns (FinalizeResponse) {}
+}
+
+message ReportRequest {
+    int32 shardID = 1;
+    int32 replicaID = 2;
+    repeated int32 tentativeCut = 3;
+}
+
+message ReportResponse {}
+
+message RegisterRequest {
+    int32 shardID = 1;
+    int32 replicaID = 2;
+}
+
+message RegisterResponse {}
+
+message FinalizeRequest {
+    int32 shardID = 1;
+}
+
+message FinalizeResponse {}
+
+// Questions
+
+// Should we be able to fluidly configure f? NO.
+// We also need to be able to handle failures -- that is,
+// if we send a message, we should know when we get a response back.
+// What is a good way to handle failures like this, say for example
+// if a server sends to an ordering node and that fails, so paxos never
+// sees it? 
+// Finalize needs to be sent from shards or from ordering? Client application that can manually finalize.
