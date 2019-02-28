@@ -1,16 +1,10 @@
 syntax = "proto3";
 
-package messages;
+package messaging;
 
 /*
-The file defines messages that any Order can receive
-from another machine (inclusive of clients and data)
-
-Each machine will talk to each other by using a socket
-based network connection. We will serialize these 
-messages and send them on this wire. 
+gRPC for Order layer of Scalog
 */
-
 service Order {
     rpc Report(ReportRequest) returns (ReportResponse) {}
 
@@ -40,12 +34,5 @@ message FinalizeRequest {
 
 message FinalizeResponse {}
 
-// Questions
-
 // Should we be able to fluidly configure f? NO.
-// We also need to be able to handle failures -- that is,
-// if we send a message, we should know when we get a response back.
-// What is a good way to handle failures like this, say for example
-// if a server sends to an ordering node and that fails, so paxos never
-// sees it? 
 // Finalize needs to be sent from shards or from ordering? Client application that can manually finalize.

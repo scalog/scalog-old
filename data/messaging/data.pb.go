@@ -36,7 +36,7 @@ func (m *AppendRequest) Reset()         { *m = AppendRequest{} }
 func (m *AppendRequest) String() string { return proto.CompactTextString(m) }
 func (*AppendRequest) ProtoMessage()    {}
 func (*AppendRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_data_ac0e5d4016e67b3b, []int{0}
+	return fileDescriptor_data_978df8a43a6e8148, []int{0}
 }
 func (m *AppendRequest) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_AppendRequest.Unmarshal(m, b)
@@ -89,7 +89,7 @@ func (m *AppendResponse) Reset()         { *m = AppendResponse{} }
 func (m *AppendResponse) String() string { return proto.CompactTextString(m) }
 func (*AppendResponse) ProtoMessage()    {}
 func (*AppendResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_data_ac0e5d4016e67b3b, []int{1}
+	return fileDescriptor_data_978df8a43a6e8148, []int{1}
 }
 func (m *AppendResponse) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_AppendResponse.Unmarshal(m, b)
@@ -135,7 +135,7 @@ func (m *ReplicateRequest) Reset()         { *m = ReplicateRequest{} }
 func (m *ReplicateRequest) String() string { return proto.CompactTextString(m) }
 func (*ReplicateRequest) ProtoMessage()    {}
 func (*ReplicateRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_data_ac0e5d4016e67b3b, []int{2}
+	return fileDescriptor_data_978df8a43a6e8148, []int{2}
 }
 func (m *ReplicateRequest) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_ReplicateRequest.Unmarshal(m, b)
@@ -170,7 +170,6 @@ func (m *ReplicateRequest) GetRecord() string {
 }
 
 // No response needed. In event of failure, we should finalize everything
-// anyways
 type ReplicateResponse struct {
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -181,7 +180,7 @@ func (m *ReplicateResponse) Reset()         { *m = ReplicateResponse{} }
 func (m *ReplicateResponse) String() string { return proto.CompactTextString(m) }
 func (*ReplicateResponse) ProtoMessage()    {}
 func (*ReplicateResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_data_ac0e5d4016e67b3b, []int{3}
+	return fileDescriptor_data_978df8a43a6e8148, []int{3}
 }
 func (m *ReplicateResponse) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_ReplicateResponse.Unmarshal(m, b)
@@ -215,7 +214,7 @@ func (m *CommitRequest) Reset()         { *m = CommitRequest{} }
 func (m *CommitRequest) String() string { return proto.CompactTextString(m) }
 func (*CommitRequest) ProtoMessage()    {}
 func (*CommitRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_data_ac0e5d4016e67b3b, []int{4}
+	return fileDescriptor_data_978df8a43a6e8148, []int{4}
 }
 func (m *CommitRequest) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_CommitRequest.Unmarshal(m, b)
@@ -259,7 +258,7 @@ func (m *CommitResponse) Reset()         { *m = CommitResponse{} }
 func (m *CommitResponse) String() string { return proto.CompactTextString(m) }
 func (*CommitResponse) ProtoMessage()    {}
 func (*CommitResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_data_ac0e5d4016e67b3b, []int{5}
+	return fileDescriptor_data_978df8a43a6e8148, []int{5}
 }
 func (m *CommitResponse) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_CommitResponse.Unmarshal(m, b)
@@ -290,7 +289,7 @@ func (m *SubscribeRequest) Reset()         { *m = SubscribeRequest{} }
 func (m *SubscribeRequest) String() string { return proto.CompactTextString(m) }
 func (*SubscribeRequest) ProtoMessage()    {}
 func (*SubscribeRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_data_ac0e5d4016e67b3b, []int{6}
+	return fileDescriptor_data_978df8a43a6e8148, []int{6}
 }
 func (m *SubscribeRequest) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_SubscribeRequest.Unmarshal(m, b)
@@ -329,7 +328,7 @@ func (m *SubscribeResponse) Reset()         { *m = SubscribeResponse{} }
 func (m *SubscribeResponse) String() string { return proto.CompactTextString(m) }
 func (*SubscribeResponse) ProtoMessage()    {}
 func (*SubscribeResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_data_ac0e5d4016e67b3b, []int{7}
+	return fileDescriptor_data_978df8a43a6e8148, []int{7}
 }
 func (m *SubscribeResponse) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_SubscribeResponse.Unmarshal(m, b)
@@ -374,7 +373,7 @@ func (m *TrimRequest) Reset()         { *m = TrimRequest{} }
 func (m *TrimRequest) String() string { return proto.CompactTextString(m) }
 func (*TrimRequest) ProtoMessage()    {}
 func (*TrimRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_data_ac0e5d4016e67b3b, []int{8}
+	return fileDescriptor_data_978df8a43a6e8148, []int{8}
 }
 func (m *TrimRequest) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_TrimRequest.Unmarshal(m, b)
@@ -411,7 +410,7 @@ func (m *TrimResponse) Reset()         { *m = TrimResponse{} }
 func (m *TrimResponse) String() string { return proto.CompactTextString(m) }
 func (*TrimResponse) ProtoMessage()    {}
 func (*TrimResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_data_ac0e5d4016e67b3b, []int{9}
+	return fileDescriptor_data_978df8a43a6e8148, []int{9}
 }
 func (m *TrimResponse) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_TrimResponse.Unmarshal(m, b)
@@ -744,9 +743,9 @@ var _Data_serviceDesc = grpc.ServiceDesc{
 	Metadata: "messaging/data.proto",
 }
 
-func init() { proto.RegisterFile("messaging/data.proto", fileDescriptor_data_ac0e5d4016e67b3b) }
+func init() { proto.RegisterFile("messaging/data.proto", fileDescriptor_data_978df8a43a6e8148) }
 
-var fileDescriptor_data_ac0e5d4016e67b3b = []byte{
+var fileDescriptor_data_978df8a43a6e8148 = []byte{
 	// 385 bytes of a gzipped FileDescriptorProto
 	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x74, 0x53, 0x4d, 0x4f, 0xe3, 0x30,
 	0x14, 0x6c, 0x92, 0x6e, 0xb4, 0x79, 0xbb, 0xed, 0xa6, 0x5e, 0x54, 0x42, 0x40, 0xa2, 0xf2, 0xa9,
