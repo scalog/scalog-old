@@ -16,14 +16,31 @@ package cmd
 
 import (
 	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/scalog/scalog/data"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
+
+var serverCount int
+var localRun bool
+
+func parsePodName(podName string) (string, int) {
+	splitPodName := strings.Split(podName, "-")
+	shardGroup := strings.Join(splitPodName[:len(splitPodName)-1], "-")
+	viper.SetDefault("shardGroup", shardGroup)
+	replicaID, err := strconv.Atoi(splitPodName[len(splitPodName)-1])
+	if err != nil {
+		replicaID = -1
+		shardGroup = ""
+	}
+	return shardGroup, replicaID
+}
 
 func init() {
 	rootCmd.AddCommand(dataCmd)
-
 	// Here you will define your flags and configuration settings.
 
 	// Cobra supports Persistent Flags which will work for this command
@@ -33,6 +50,23 @@ func init() {
 	// Cobra supports local flags which will only run when this command
 	// is called directly, e.g.:
 	// dataCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
+
+	dataCmd.Flags().BoolVar(&localRun, "localRun", false, "Use if running locally")
+	viper.BindPFlag("localRun", dataCmd.Flags().Lookup("localRun"))
+
+	dataCmd.Flags().IntVar(&serverCount, "serverCount", 2, "Number of servers in a shard (default is 2)")
+	viper.BindPFlag("serverCount", dataCmd.Flags().Lookup("serverCount"))
+
+	viper.BindEnv("node_name")
+	viper.BindEnv("name")
+	viper.BindEnv("namespace")
+	viper.BindEnv("pod_ip")
+
+	viper.SetDefault("name", "no-service-name")
+	shardGroup, replicaID := parsePodName(viper.GetString("name"))
+	viper.SetDefault("shardGroup", shardGroup)
+	dataCmd.PersistentFlags().Int("id", replicaID, "Replica id")
+	viper.BindPFlag("id", dataCmd.PersistentFlags().Lookup("id"))
 }
 
 // dataCmd represents the data command

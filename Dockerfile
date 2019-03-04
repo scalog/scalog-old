@@ -4,10 +4,10 @@
 FROM golang:1.11 as builder
 
 # Copy everything from the current directory to the PWD(Present Working Directory) inside the container
-COPY . /go/src/github.com/scalog/
+COPY . /go/src/github.com/scalog/scalog/
 
 # Set the Current Working Directory inside the container
-WORKDIR /go/src/github.com/scalog/
+WORKDIR /go/src/github.com/scalog/scalog/
 
 # Download dependencies
 RUN set -x && \
@@ -25,7 +25,7 @@ RUN apk --no-cache add ca-certificates
 WORKDIR /root/
 
 # Copy the Pre-built binary file from the previous stage
-COPY --from=builder /go/src/github.com/scalog/scalog /app/
+COPY --from=builder /go/src/github.com/scalog/scalog/scalog /app/
 
 WORKDIR /app
 

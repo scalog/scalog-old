@@ -75,24 +75,8 @@ func allPodsAreRunning(pods []v1.Pod) bool {
 	return true
 }
 
-/* Note: This is a blocking operation -- waits until all servers in a shard are up before trying to open
-communication channels with them. Only then will this server become ready to take requests.
-*/
-func newDataServer() *dataServer {
-	clientset := initKubernetesClient()
-
-	logger.Printf("Waiting for " + viper.GetString("shardGroup"))
-	listOptions := metav1.ListOptions{
-		LabelSelector: "tier=" + viper.GetString("shardGroup"),
-	}
-
-	logger.Printf("Server %d searching for other %d servers\n", viper.Get("id"), viper.Get("serverCount"))
-
-	var pods *v1.PodList
-	var err error
-
-	// Recover all servers within the shard
-	pods, err = clientset.CoreV1().Pods(viper.GetString("namespace")).List(listOptions)
+func getShardPods(clientset *kubernetes.Clientset, listOptions metav1.ListOptions) *v1.PodList {
+	pods, err := clientset.CoreV1().Pods(viper.GetString("namespace")).List(listOptions)
 	if err != nil {
 		panic(err)
 	}
@@ -103,17 +87,30 @@ func newDataServer() *dataServer {
 			panic(err)
 		}
 	}
+	return pods
+}
 
-	// Setup pod communication channels
+/* Note: This is a blocking operation -- waits until all servers in a shard are up before trying to open
+communication channels with them. Only then will this server become ready to take requests.
+*/
+func newDataServer() *dataServer {
 	var shardPods []chan messaging.ReplicateRequest
 
-	for _, pod := range pods.Items {
-		// Ignore yourself. This pod should also be present in pods.Items
-		if pod.Status.PodIP == viper.Get("pod_ip") || pod.Status.PodIP == "" {
-			continue
+	// Run this only if running within a kubernetes cluster
+	if !viper.GetBool("localRun") {
+		logger.Printf("Server %d searching for other %d servers in %s\n", viper.Get("id"), viper.Get("serverCount"), viper.GetString("shardGroup"))
+		clientset := initKubernetesClient()
+		listOptions := metav1.ListOptions{
+			LabelSelector: "tier=" + viper.GetString("shardGroup"),
 		}
-		shardPods = append(shardPods, make(chan messaging.ReplicateRequest))
-		go podConn(pod.Status.PodIP, shardPods[len(shardPods)-1])
+		pods := getShardPods(clientset, listOptions)
+		for _, pod := range pods.Items {
+			if pod.Status.PodIP == viper.Get("pod_ip") {
+				continue
+			}
+			shardPods = append(shardPods, make(chan messaging.ReplicateRequest))
+			go podConn(pod.Status.PodIP, shardPods[len(shardPods)-1])
+		}
 	}
 
 	fs := filesystem.New("scalog-db")
