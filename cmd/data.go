@@ -24,6 +24,9 @@ import (
 	"github.com/spf13/viper"
 )
 
+var serverCount int
+var localRun bool
+
 func parsePodName(podName string) (string, int) {
 	splitPodName := strings.Split(podName, "-")
 	shardGroup := strings.Join(splitPodName[:len(splitPodName)-1], "-")
@@ -47,6 +50,10 @@ func init() {
 	// Cobra supports local flags which will only run when this command
 	// is called directly, e.g.:
 	// dataCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
+
+	dataCmd.Flags().BoolVar(&localRun, "localRun", false, "Use if running locally")
+	viper.BindPFlag("localRun", dataCmd.Flags().Lookup("localRun"))
+
 	dataCmd.Flags().IntVar(&serverCount, "serverCount", 2, "Number of servers in a shard (default is 2)")
 	viper.BindPFlag("serverCount", dataCmd.Flags().Lookup("serverCount"))
 
@@ -60,7 +67,6 @@ func init() {
 	viper.SetDefault("shardGroup", shardGroup)
 	dataCmd.PersistentFlags().Int("id", replicaID, "Replica id")
 	viper.BindPFlag("id", dataCmd.PersistentFlags().Lookup("id"))
-
 }
 
 // dataCmd represents the data command
