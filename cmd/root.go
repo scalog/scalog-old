@@ -25,6 +25,7 @@ import (
 
 var cfgFile string
 var port int
+var serverCount int
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
@@ -58,7 +59,9 @@ func init() {
 	// will be global for your application.
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.scalog.yaml)")
 	rootCmd.PersistentFlags().IntVar(&port, "port", 21024, "Port to listen (default is 21024)")
+	rootCmd.PersistentFlags().IntVar(&serverCount, "serverCount", 2, "Number of servers in a shard (default is 2)")
 	viper.BindPFlag("port", rootCmd.PersistentFlags().Lookup("port"))
+	viper.BindPFlag("serverCount", rootCmd.PersistentFlags().Lookup("serverCount"))
 	rootCmd.PersistentFlags().Int("id", 0, "Process id (default is 0)")
 	viper.BindPFlag("id", rootCmd.PersistentFlags().Lookup("id"))
 

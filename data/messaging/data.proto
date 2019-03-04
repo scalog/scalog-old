@@ -1,0 +1,61 @@
+syntax = "proto3";
+
+package messaging;
+
+/*
+gRPC for Data layer of Scalog
+*/
+service Data {
+	rpc Append (AppendRequest) returns (AppendResponse) {}
+
+	rpc Replicate (stream ReplicateRequest) returns (ReplicateResponse) {}
+
+	rpc Commit (stream CommitRequest) returns (CommitResponse) {}
+
+	rpc Subscribe (SubscribeRequest) returns (stream SubscribeResponse) {}
+
+	rpc Trim (TrimRequest) returns (TrimResponse) {}
+}
+
+message AppendRequest {
+	int32 cid = 1;
+	int32 csn = 2;
+	string record = 3;
+}
+
+message AppendResponse {
+	int32 csn = 1;
+	int32 gsn = 2;
+}
+
+message ReplicateRequest {
+	int32 serverID = 1;
+	string record = 2;
+}
+
+// No response needed. In event of failure, we should finalize everything
+message ReplicateResponse {}
+
+message CommitRequest {
+	// Integer offset of the first newly ordered record
+	int32 offset = 1;
+	// Should be in order of the server ID
+	repeated int32 cut = 2;
+}
+
+message CommitResponse {}
+
+message SubscribeRequest {
+	int32 subscription_gsn = 1;
+}
+
+message SubscribeResponse {
+	int32 gsn = 1;
+	string record = 2;
+}
+
+message TrimRequest {
+	int32 gsn = 1;
+}
+
+message TrimResponse {}

@@ -1,0 +1,38 @@
+syntax = "proto3";
+
+package messaging;
+
+/*
+gRPC for Order layer of Scalog
+*/
+service Order {
+    rpc Report(ReportRequest) returns (ReportResponse) {}
+
+    rpc Register(RegisterRequest) returns (RegisterResponse) {}
+
+    rpc Finalize(FinalizeRequest) returns (FinalizeResponse) {}
+}
+
+message ReportRequest {
+    int32 shardID = 1;
+    int32 replicaID = 2;
+    repeated int32 tentativeCut = 3;
+}
+
+message ReportResponse {}
+
+message RegisterRequest {
+    int32 shardID = 1;
+    int32 replicaID = 2;
+}
+
+message RegisterResponse {}
+
+message FinalizeRequest {
+    int32 shardID = 1;
+}
+
+message FinalizeResponse {}
+
+// Should we be able to fluidly configure f? NO.
+// Finalize needs to be sent from shards or from ordering? Client application that can manually finalize.
