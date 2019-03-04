@@ -1,8 +1,8 @@
 package order
 
 import (
+	"github.com/coreos/etcd/raft/raftpb"
 	"go.etcd.io/etcd/raft"
-	"go.etcd.io/etcd/raft/raftpb"
 )
 
 type raftNode struct {

@@ -232,12 +232,9 @@
   version = "v1.3.1"
 
 [[projects]]
-  digest = "1:ac7677503bfe84b5948c9d90801898dee66719e296d86c0246e16f897695e5fb"
+  digest = "1:8d8d9e80cf36338b9383d449d9c7716430b4fbd7a6966614b0694eb2299a82ca"
   name = "go.etcd.io/etcd"
-  packages = [
-    "raft",
-    "raft/raftpb",
-  ]
+  packages = ["raft"]
   pruneopts = "UT"
   revision = "d57e8b8d97adfc4a6c224fe116714bf1a1f3beb9"
   version = "v3.3.12"
@@ -559,12 +556,12 @@
   analyzer-name = "dep"
   analyzer-version = 1
   input-imports = [
+    "github.com/coreos/etcd/raft/raftpb",
     "github.com/golang/protobuf/proto",
     "github.com/mitchellh/go-homedir",
     "github.com/spf13/cobra",
     "github.com/spf13/viper",
     "go.etcd.io/etcd/raft",
-    "go.etcd.io/etcd/raft/raftpb",
     "golang.org/x/net/context",
     "google.golang.org/grpc",
     "k8s.io/api/core/v1",
