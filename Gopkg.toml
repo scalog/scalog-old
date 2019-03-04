@@ -46,7 +46,7 @@
   version = "3.3.12"
 
 [[constraint]]
-  branch = "master"
+  branch = "release-branch.go1.10"
   name = "golang.org/x/net"
 
 [[constraint]]
@@ -54,12 +54,16 @@
   version = "1.19.0"
 
 [[constraint]]
-  branch = "release-1.10"
+  name = "k8s.io/api"
+  version = "kubernetes-1.13.0"
+
+[[constraint]]
+  branch = "master"
   name = "k8s.io/apimachinery"
 
 [[constraint]]
   name = "k8s.io/client-go"
-  version = "9.0.0"
+  version = "10.0.0"
 
 [prune]
   go-tests = true
