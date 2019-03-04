@@ -5,10 +5,9 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/scalog/data/filesystem"
+	"github.com/scalog/scalog/data/filesystem"
+	"github.com/scalog/scalog/data/messaging"
 	"google.golang.org/grpc"
-
-	"github.com/scalog/data/messaging"
 )
 
 func testFileSystem() {
@@ -40,7 +39,6 @@ func testGRPC(port string) {
 
 func main() {
 	fmt.Println("Test started")
-	// NOTE: To test the file system, make a directory called /tmp
 	// testFileSystem()
 	testGRPC("0.0.0.0:21024")
 }

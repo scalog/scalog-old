@@ -1,0 +1,30 @@
+# Create a shared voluem resource for storing all 
+# logged data on stable storage
+kind: PersistentVolume
+apiVersion: v1
+metadata:
+  name: scalog-data-volume
+  labels:
+    type: dev
+spec:
+  storageClassName: scalog-dev
+  capacity:
+    storage: 30Mi
+  accessModes:
+    - ReadWriteOnce # TODO: evanzhao change when deploying off minikube
+  hostPath:
+    path: "/mnt/data"
+---
+# Each data layer is allocated this amount of space
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: scalog-stable-storage-claim
+  namespace: scalog
+spec:
+  storageClassName: scalog-dev
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Mi

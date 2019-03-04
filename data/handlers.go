@@ -8,47 +8,34 @@ import (
 
 	"github.com/spf13/viper"
 
-	"github.com/scalog/data/filesystem"
-	"github.com/scalog/data/messaging"
-	pb "github.com/scalog/data/messaging"
+	"github.com/scalog/scalog/data/filesystem"
+	"github.com/scalog/scalog/data/messaging"
+	pb "github.com/scalog/scalog/data/messaging"
 )
 
-// Record is a pending message to the ordering layer
+// Record is an internal representation of a log record
 type Record struct {
 	cid        int32
 	csn        int32
 	record     string
-	commitResp chan int // Should send back a GSN
+	commitResp chan int // Should send back a GSN to be forwarded to client
 }
 
-// We should mount some persistent volume. the filesystem package will be used to write
-// to this mounted volume.
 type dataServer struct {
-	// Storage for this server in particular
+	// Stable storage for entries into this shard
 	stableStorage *filesystem.RecordStorage
-
 	// Main storage stacks for incoming records
-	// TODO: evantzhao make this faster by using a separate go routine for each
-	// server stack.
+	// TODO: evantzhao use goroutines and channels to update this instead of mutex
 	serverBuffers [][]Record
-
 	// lastCommitedRecords stores the integer value of the last commited
 	// value in each server buffer
 	lastCommitedRecords []int
-
-	// TODO: evantzhao make this more efficient by either utilizing mutexes for
-	// each server log. Also consider channel
 	// Protects all internal structures
 	mu sync.Mutex
-
-	// Items written to these channels will be sent to these corresponding pods
+	// Live connections to other servers inside the shard -- used for replication
 	shardServers []chan messaging.ReplicateRequest
 }
 
-// Append adds the specified record to the local data server, and this server additionally
-// forwards the append request to other servers within the shard with Replicate. Responds
-// to the client with a global sequence number when the Ordering layer commits
-// this record.
 func (s *dataServer) Append(c context.Context, req *pb.AppendRequest) (*pb.AppendResponse, error) {
 	s.mu.Lock()
 	r := &Record{
@@ -64,10 +51,7 @@ func (s *dataServer) Append(c context.Context, req *pb.AppendRequest) (*pb.Appen
 		ServerID: viper.GetInt32("id"),
 		Record:   req.Record,
 	}
-	for idx, ch := range s.shardServers {
-		if idx == viper.GetInt("id") {
-			continue
-		}
+	for _, ch := range s.shardServers {
 		ch <- *replicateRequest
 	}
 	gsn := int32(<-r.commitResp)
@@ -83,7 +67,6 @@ func (s *dataServer) Replicate(stream pb.Data_ReplicateServer) error {
 		if err != nil {
 			return err
 		}
-
 		s.mu.Lock()
 		s.serverBuffers[in.ServerID] = append(s.serverBuffers[in.ServerID], Record{record: in.Record})
 		s.mu.Unlock()
@@ -101,22 +84,33 @@ func (s *dataServer) Commit(stream pb.Data_CommitServer) error {
 		}
 
 		if len(in.Cut) != len(s.serverBuffers) {
-			panic(
-				fmt.Sprintf("[Data] Received cut is of irregular length (%d vs %d)",
+			return fmt.Errorf(
+				fmt.Sprintf(
+					"[Data] Received cut is of irregular length (%d vs %d)",
 					len(in.Cut),
 					len(s.serverBuffers),
 				),
 			)
 		}
 
-		// TODO evanzhao: implement cut update logic. Should push GSN's to record channel
+		offset := 0
+		for idx, latest := range in.Cut {
+			for lastSeen := s.lastCommitedRecords[idx]; lastSeen < int(latest); lastSeen++ {
+				gsn := int(in.Offset) + offset
+				offset++
+				s.serverBuffers[idx][lastSeen].commitResp <- gsn
+				s.stableStorage.WriteLog(gsn, s.serverBuffers[idx][lastSeen].record)
+			}
+		}
 	}
 }
 
 func (s *dataServer) Subscribe(*pb.SubscribeRequest, pb.Data_SubscribeServer) error {
+	// TODO: Implement
 	return nil
 }
 
 func (s *dataServer) Trim(context.Context, *pb.TrimRequest) (*pb.TrimResponse, error) {
+	// TODO: Implement
 	return nil, nil
 }

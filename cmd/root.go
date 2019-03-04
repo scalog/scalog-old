@@ -17,8 +17,11 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"strconv"
+	"strings"
 
 	homedir "github.com/mitchellh/go-homedir"
+	"github.com/scalog/scalog/logger"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -62,7 +65,24 @@ func init() {
 	rootCmd.PersistentFlags().IntVar(&serverCount, "serverCount", 2, "Number of servers in a shard (default is 2)")
 	viper.BindPFlag("port", rootCmd.PersistentFlags().Lookup("port"))
 	viper.BindPFlag("serverCount", rootCmd.PersistentFlags().Lookup("serverCount"))
-	rootCmd.PersistentFlags().Int("id", 0, "Process id (default is 0)")
+
+	viper.BindEnv("node_name")
+	viper.BindEnv("name")
+	viper.BindEnv("namespace")
+	viper.BindEnv("pod_ip")
+
+	logger.Printf(viper.GetString("node_name"), viper.GetString("name"), viper.GetString("namespace"), viper.GetString("pod_ip"))
+
+	seg := strings.Split(viper.GetString("name"), "-")
+	group := strings.Join(seg[:len(seg)-1], "-")
+	// rootCmd.PersistentFlags().String("shardGroup", group, "shardGroup")
+	// viper.BindPFlag("shardGroup", rootCmd.PersistentFlags().Lookup("shardGroup"))
+	viper.SetDefault("shardGroup", group)
+	id, err := strconv.Atoi(seg[len(seg)-1])
+	if err != nil {
+		logger.Panicf(err.Error())
+	}
+	rootCmd.PersistentFlags().Int("id", id, "Process id")
 	viper.BindPFlag("id", rootCmd.PersistentFlags().Lookup("id"))
 
 	// Cobra also supports local flags, which will only run

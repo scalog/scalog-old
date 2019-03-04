@@ -489,7 +489,7 @@
     "third_party/forked/golang/reflect",
   ]
   pruneopts = "UT"
-  revision = "d49e237a2683fa6dc43a86c7b1b766e0219fb6e7"
+  revision = "2f7e9cae4418a86ea03618fea183bfe9fe43c574"
 
 [[projects]]
   digest = "1:8cb007446244cc189828c52199986a7122d8ad7a5ebec61028dcaaf71312c838"
@@ -561,6 +561,7 @@
     "go.etcd.io/etcd/raft/raftpb",
     "golang.org/x/net/context",
     "google.golang.org/grpc",
+    "k8s.io/api/core/v1",
     "k8s.io/apimachinery/pkg/apis/meta/v1",
     "k8s.io/client-go/kubernetes",
     "k8s.io/client-go/rest",

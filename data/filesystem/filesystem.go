@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"os"
 	"strconv"
+
+	"github.com/scalog/scalog/logger"
 )
 
 var filePrefix = "log"
@@ -24,6 +26,12 @@ type RecordStorage struct {
 
 // New filesystem
 func New(volumePath string) RecordStorage {
+	// Ensure volume path exists
+	err := os.MkdirAll(volumePath, os.ModePerm)
+	if err != nil {
+		logger.Panicf(err.Error())
+	}
+
 	l := RecordStorage{volumePath, nil, nil, 1, 0}
 	l.file = createFile(volumePath, genFilename(l.fileNumber))
 	l.writer = createBufferedWriter(l.file)

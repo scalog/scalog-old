@@ -1,0 +1,26 @@
+apiVersion: rbac.authorization.k8s.io/v1beta1
+kind: ClusterRole
+metadata:
+  name: scalog-data-layer-rbac
+  namespace: "scalog"
+  labels:
+    app: scalog-data
+rules:
+  - apiGroups: [""]
+    resources: ["endpoints", "pods", "configmaps"]
+    verbs: ["*"]
+---
+apiVersion: rbac.authorization.k8s.io/v1beta1
+kind: ClusterRoleBinding
+metadata:
+  name: scalog-data-rbac-global
+  labels:
+    app: scalog-data
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: scalog-data-layer-rbac
+subjects:
+  - name: scalog-data-service-account
+    namespace: "scalog"
+    kind: ServiceAccount
