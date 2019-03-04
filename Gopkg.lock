@@ -2,12 +2,32 @@
 
 
 [[projects]]
+  digest = "1:66c29fe5dfd9b2e4b3e90998b5db1bdc41eec9b273907d66e3769cbbc7d26e43"
+  name = "github.com/coreos/etcd"
+  packages = ["raft/raftpb"]
+  pruneopts = "UT"
+  revision = "d57e8b8d97adfc4a6c224fe116714bf1a1f3beb9"
+  version = "v3.3.12"
+
+[[projects]]
   digest = "1:abeb38ade3f32a92943e5be54f55ed6d6e3b6602761d74b4aab4c9dd45c18abd"
   name = "github.com/fsnotify/fsnotify"
   packages = ["."]
   pruneopts = "UT"
   revision = "c2828203cd70a50dcccfb2761f8b1f8ceef9a8e9"
   version = "v1.4.7"
+
+[[projects]]
+  digest = "1:4652941215f23c7ad6546bab86964c72248a1134baa53f0df618661344ba5cac"
+  name = "github.com/gogo/protobuf"
+  packages = [
+    "gogoproto",
+    "proto",
+    "protoc-gen-gogo/descriptor",
+  ]
+  pruneopts = "UT"
+  revision = "ba06b47c162d49f2af050fb4c75bcbc86a159d5c"
+  version = "v1.2.1"
 
 [[projects]]
   digest = "1:318f1c959a8a740366fce4b1e1eb2fd914036b4af58fbd0a003349b305f118ad"
@@ -128,6 +148,17 @@
   version = "v1.3.1"
 
 [[projects]]
+  digest = "1:ac7677503bfe84b5948c9d90801898dee66719e296d86c0246e16f897695e5fb"
+  name = "go.etcd.io/etcd"
+  packages = [
+    "raft",
+    "raft/raftpb",
+  ]
+  pruneopts = "UT"
+  revision = "d57e8b8d97adfc4a6c224fe116714bf1a1f3beb9"
+  version = "v3.3.12"
+
+[[projects]]
   branch = "master"
   digest = "1:d0e9a312c4610a508569ab25e54d34600b1a96d19b1866ece104ffdf1c1b9d2c"
   name = "golang.org/x/sys"
@@ -166,6 +197,8 @@
     "github.com/mitchellh/go-homedir",
     "github.com/spf13/cobra",
     "github.com/spf13/viper",
+    "go.etcd.io/etcd/raft",
+    "go.etcd.io/etcd/raft/raftpb",
   ]
   solver-name = "gps-cdcl"
   solver-version = 1
