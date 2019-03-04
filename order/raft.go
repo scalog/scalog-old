@@ -1,6 +1,7 @@
 package order
 
 import (
+	"github.com/coreos/etcd/raft/raftpb"
 	"go.etcd.io/etcd/raft"
 )
 
@@ -38,4 +39,43 @@ func newRaftNode(id uint64, peers []uint64, incoming <-chan string, outgoing <-c
 	}
 
 	return nodeWrapper
+}
+
+func (node *raftNode) readChannels() {
+	select {
+	case ready := <-node.node.Ready():
+		node.saveToStorage(ready.RaftState, ready.Entries, ready.Snapshot)
+		node.send(ready.Messages)
+		if !raft.IsEmptySnap(ready.Snapshot) {
+			node.processSnapshot(ready.Snapshot)
+		}
+
+		for _, entry := range ready.CommittedEntries {
+			node.process(entry)
+
+			if entry.Type == raftpb.EntryConfChange {
+				var configChange raftpb.ConfChange
+				configChange.Unmarshal(entry.Data)
+				node.node.ApplyConfChange(configChange)
+			}
+		}
+
+		node.node.Advance()
+	}
+}
+
+func (node *raftNode) saveToStorage(state raft.StateType, entries []raftpb.Entry, snapshot raftpb.Snapshot) {
+
+}
+
+func (node *raftNode) send(messages []raftpb.Message) {
+
+}
+
+func (node *raftNode) processSnapshot(snapshot raftpb.Snapshot) {
+
+}
+
+func (node *raftNode) process(entries raftpb.Entry) {
+
 }
