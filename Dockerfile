@@ -32,19 +32,3 @@ WORKDIR /app
 EXPOSE 21024
 
 CMD ["./scalog", "data"]
-
-######## Start a new stage from scratch for order layer #######
-FROM alpine:latest  
-
-RUN apk --no-cache add ca-certificates
-
-WORKDIR /root/
-
-# Copy the Pre-built binary file from the previous stage
-COPY --from=builder /go/src/github.com/scalog/scalog/scalog /app/
-
-WORKDIR /app
-
-EXPOSE 21024
-
-CMD ["./scalog", "order"]
