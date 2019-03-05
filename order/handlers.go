@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 
+	dataPb "github.com/scalog/scalog/data/messaging"
 	pb "github.com/scalog/scalog/order/messaging"
 )
 
@@ -25,7 +26,7 @@ type orderServer struct {
 	globalSequenceNum  int
 	shardIds           []int
 	numServersPerShard int
-	mu sync.Mutex
+	mu                 sync.Mutex
 }
 
 func initCommittedCut(shardIds []int, numServersPerShard int) CommittedGlobalCut {
@@ -71,30 +72,26 @@ func (server *orderServer) mergeContestedCuts() Deltas {
 }
 
 /**
-Use deltas to increment committed cuts.
-*/
-func (server *orderServer) updateCommittedCuts(deltas Deltas) {
-	for _, shardId := range server.shardIds {
-		for i := 0; i < server.numServersPerShard; i++ {
-			server.committedGlobalCut[shardId][i] += deltas[shardId][i]
-		}
-	}
-}
-
-/**
 Compute global sequence number for each server and send update message.
+NOTE: Must be called after updateCommittedCuts().
 */
-func (server *orderServer) updateGlobalSeqNumAndBroadcastDeltas(deltas Deltas) {
+func (server *orderServer) updateCommittedCutGlobalSeqNumAndBroadcastDeltas(deltas Deltas) {
 	for _, shardId := range server.shardIds {
+		response := dataPb.CommitRequest{
+			StartGlobalSequenceNum: int32(server.globalSequenceNum),
+			Offsets:                intSliceToInt32Slice(server.committedGlobalCut[shardId]),
+		}
+
 		for i := 0; i < server.numServersPerShard; i++ {
 			delta := deltas[shardId][i]
 
-			prevSequenceNum := server.globalSequenceNum
-			newSequenceNum := prevSequenceNum + delta
-
-			//server.Respond() TODO
-			server.globalSequenceNum = newSequenceNum
+			// calculate new committed cuts
+			server.committedGlobalCut[shardId][i] += delta
+			server.globalSequenceNum = server.globalSequenceNum + delta
 		}
+
+		response.CommittedCuts = intSliceToInt32Slice(server.committedGlobalCut[shardId])
+		server.Respond(response, shardId)
 	}
 }
 
@@ -113,8 +110,10 @@ func (server *orderServer) Report(ctx context.Context, req *pb.ReportRequest) (*
 	return nil, nil
 }
 
-func (server *orderServer) Respond(ctx context.Context) error {
-	return nil
+func (server *orderServer) Respond(req dataPb.CommitRequest, shardId int) {
+	for i := 0; i < server.numServersPerShard; i++ {
+		//TODO send response to data layer
+	}
 }
 
 func (server *orderServer) Register(ctx context.Context, req *pb.RegisterRequest) (*pb.RegisterResponse, error) {
@@ -136,4 +135,11 @@ func min(a int, b int) int {
 		return a
 	}
 	return b
+}
+func intSliceToInt32Slice(intSlice []int) []int32 {
+	int32Slice := make([]int32, len(intSlice), len(intSlice))
+	for idx, element := range intSlice {
+		int32Slice[idx] = int32(element)
+	}
+	return int32Slice
 }

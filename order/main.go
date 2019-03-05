@@ -27,8 +27,7 @@ func startRespondingToDataLayer(server *orderServer) {
 	ticker := time.NewTicker(100 * time.Microsecond) // todo remove hard-coded interval
 	for range ticker.C {
 		deltas := server.mergeContestedCuts()
-		server.updateCommittedCuts(deltas)
-		server.updateGlobalSeqNumAndBroadcastDeltas(deltas)
+		server.updateCommittedCutGlobalSeqNumAndBroadcastDeltas(deltas)
 	}
 }
 
