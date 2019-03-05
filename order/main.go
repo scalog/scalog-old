@@ -8,13 +8,19 @@ import (
 	"google.golang.org/grpc"
 	"log"
 	"net"
+	"sync"
 	"time"
 )
 
-func newOrderServer() *orderServer {
-	s := &orderServer{
+func newOrderServer(shardIds []int, numServersPerShard int) *orderServer {
+	return &orderServer{
+		committedGlobalCut: initCommittedCut(shardIds, numServersPerShard),
+		contestedGlobalCut: initContestedCut(shardIds, numServersPerShard),
+		globalSequenceNum:  0,
+		shardIds:           shardIds,
+		numServersPerShard: numServersPerShard,
+		mu:                 sync.Mutex{},
 	}
-	return s
 }
 
 func startRespondingToDataLayer(server *orderServer) {
