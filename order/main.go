@@ -8,12 +8,22 @@ import (
 	"google.golang.org/grpc"
 	"log"
 	"net"
+	"time"
 )
 
 func newOrderServer() *orderServer {
 	s := &orderServer{
 	}
 	return s
+}
+
+func startRespondingToDataLayer(server *orderServer) {
+	ticker := time.NewTicker(100 * time.Microsecond) // todo remove hard-coded interval
+	for range ticker.C {
+		deltas := server.mergeContestedCuts()
+		server.updateCommittedCuts(deltas)
+		server.updateGlobalSeqNumAndBroadcastDeltas(deltas)
+	}
 }
 
 func Start() {
@@ -23,7 +33,9 @@ func Start() {
 		log.Fatalf("failed to listen: %v", err)
 	}
 	grpcServer := grpc.NewServer()
-	messaging.RegisterOrderServer(grpcServer, newOrderServer())
+	orderServer := newOrderServer()
+	messaging.RegisterOrderServer(grpcServer, orderServer)
 	logger.Printf("Order layer server %d available on %d\n", viper.Get("asdf"), viper.Get("port"))
 	grpcServer.Serve(lis)
+	go startRespondingToDataLayer(orderServer)
 }
