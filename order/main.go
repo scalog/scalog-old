@@ -38,7 +38,7 @@ func Start() {
 		log.Fatalf("failed to listen: %v", err)
 	}
 	grpcServer := grpc.NewServer()
-	orderServer := newOrderServer()
+	orderServer := newOrderServer(make([]int, 1, 1), 2) // todo fix hard-coded parameters
 	messaging.RegisterOrderServer(grpcServer, orderServer)
 	logger.Printf("Order layer server %d available on %d\n", viper.Get("asdf"), viper.Get("port"))
 	grpcServer.Serve(lis)
