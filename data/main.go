@@ -107,7 +107,8 @@ func (server *dataServer) sendTentativeCuts() {
 
 	// Anonymous function for sending tentative cuts to the ordering layer
 	go func() {
-		for {
+		ticker := time.NewTicker(50 * time.Microsecond) // todo remove hard-coded interval
+		for range ticker.C {
 			cut := make([]int32, viper.GetInt("serverCount"))
 			for idx, buf := range server.serverBuffers {
 				cut[idx] = int32(len(buf))
@@ -118,7 +119,6 @@ func (server *dataServer) sendTentativeCuts() {
 				TentativeCut: cut,
 			}
 			stream.Send(reportReq)
-			time.Sleep(500 * time.Millisecond)
 		}
 	}()
 
