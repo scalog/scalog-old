@@ -14,13 +14,26 @@ type ContestedGlobalCut map[string][]ShardCut
 // Map<Shard ID, Cuts in the shard>
 type CommittedGlobalCut map[string]ShardCut
 
+// Number of new logs appended within the previous time period
+type Deltas CommittedGlobalCut
+
 type orderServer struct {
 	committedGlobalCut CommittedGlobalCut
 	contestedGlobalCut ContestedGlobalCut
 	globalSequenceNum  int
+	shardIds           []string
+	numServersPerShard int
 }
 
-func initGlobalCut(shardIds []string, numServersPerShard int) ContestedGlobalCut {
+func initCommittedCut(shardIds []string, numServersPerShard int) CommittedGlobalCut {
+	cut := make(CommittedGlobalCut, len(shardIds))
+	for _, shardId := range shardIds {
+		cut[shardId] = make(ShardCut, numServersPerShard, numServersPerShard)
+	}
+	return cut
+}
+
+func initContestedCut(shardIds []string, numServersPerShard int) ContestedGlobalCut {
 	cut := make(ContestedGlobalCut, len(shardIds))
 	for _, shardId := range shardIds {
 		shardCuts := make([]ShardCut, numServersPerShard, numServersPerShard)
@@ -32,25 +45,20 @@ func initGlobalCut(shardIds []string, numServersPerShard int) ContestedGlobalCut
 	return cut
 }
 
-/**
-Process new cut from data server.
-
-cut: Server's view of the latest cut
-shardId: Id of shard that server belongs to
-num: Index of server in shard
-*/
-func (gCut ContestedGlobalCut) newShardCut(cut ShardCut, shardId string, num int) {
-
+func (server *orderServer) mergeContestedCuts() {
+	//for _, shardId := range server.shardIds {
+	//
+	//}
 }
 
-func (s *orderServer) Report(ctx context.Context, req *pb.ReportRequest) (*pb.ReportResponse, error) {
+func (server *orderServer) Report(ctx context.Context, req *pb.ReportRequest) (*pb.ReportResponse, error) {
 	return nil, nil
 }
 
-func (s *orderServer) Register(ctx context.Context, req *pb.RegisterRequest) (*pb.RegisterResponse, error) {
+func (server *orderServer) Register(ctx context.Context, req *pb.RegisterRequest) (*pb.RegisterResponse, error) {
 	return nil, nil
 }
 
-func (s *orderServer) Finalize(ctx context.Context, req *pb.FinalizeRequest) (*pb.FinalizeResponse, error) {
+func (server *orderServer) Finalize(ctx context.Context, req *pb.FinalizeRequest) (*pb.FinalizeResponse, error) {
 	return nil, nil
 }
