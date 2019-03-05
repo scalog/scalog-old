@@ -10,8 +10,6 @@ service Data {
 
 	rpc Replicate (stream ReplicateRequest) returns (ReplicateResponse) {}
 
-	rpc Commit (stream CommitRequest) returns (CommitResponse) {}
-
 	rpc Subscribe (SubscribeRequest) returns (stream SubscribeResponse) {}
 
 	rpc Trim (TrimRequest) returns (TrimResponse) {}
@@ -35,17 +33,6 @@ message ReplicateRequest {
 
 // No response needed. In event of failure, we should finalize everything
 message ReplicateResponse {}
-
-message CommitRequest {
-	// Gsn to start counting off of for the 0th server
-	int32 startGlobalSequenceNum = 1;
-	// Offsets of the newly ordered records
-	repeated int32 offsets = 2;
-	// Should be in order of the server ID
-	repeated int32 committedCuts = 3;
-}
-
-message CommitResponse {}
 
 message SubscribeRequest {
 	int32 subscription_gsn = 1;
