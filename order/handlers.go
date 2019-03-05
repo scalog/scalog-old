@@ -114,17 +114,16 @@ func (server *orderServer) updateCommittedCutGlobalSeqNumAndBroadcastDeltas(delt
 }
 
 // Reports final cuts to the data layer periodically
-func (server *orderServer) reportResponseRoutine(stream pb.Order_ReportServer) {
-	shardId := 0 //TODO find shardId
-	num := 0     //TODO
+func (server *orderServer) reportResponseRoutine(stream pb.Order_ReportServer, req *pb.ReportRequest) {
+	shardId := int(req.ShardID)
+	num := req.ReplicaID
 	for response := range server.responseChannels[shardId][num] {
 		stream.Send(&response)
 	}
 }
 
 func (server *orderServer) Report(stream pb.Order_ReportServer) error {
-	// Boot routine for periodically responding to data layer
-	go server.reportResponseRoutine(stream)
+	spawned := false
 	for {
 		req, err := stream.Recv()
 		if err == io.EOF {
@@ -133,6 +132,12 @@ func (server *orderServer) Report(stream pb.Order_ReportServer) error {
 		if err != nil {
 			return err
 		}
+		if !spawned {
+			// Boot routine ONLY ONCE for periodically responding to data layer
+			go server.reportResponseRoutine(stream, req)
+			spawned = true
+		}
+
 		cut := make(ShardCut, server.numServersPerShard)
 		for i := 0; i < len(cut); i++ {
 			cut[i] = int(req.TentativeCut[i])
