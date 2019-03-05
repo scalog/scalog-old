@@ -3,6 +3,7 @@ package data
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"sync"
@@ -16,6 +17,7 @@ import (
 	"github.com/scalog/scalog/data/filesystem"
 	"github.com/scalog/scalog/data/messaging"
 	"github.com/scalog/scalog/logger"
+	om "github.com/scalog/scalog/order/messaging"
 	"github.com/spf13/viper"
 	"google.golang.org/grpc"
 )
@@ -88,6 +90,60 @@ func getShardPods(clientset *kubernetes.Clientset, listOptions metav1.ListOption
 		}
 	}
 	return pods
+}
+
+func (server *dataServer) sendTentativeCuts() {
+	var opts []grpc.DialOption
+	opts = append(opts, grpc.WithInsecure())
+
+	logger.Printf("Utilizing DNS to dial Ordering Layer at scalog-order-service.scalog:" + viper.GetString("orderPort"))
+	conn, err := grpc.Dial("dns:///scalog-order-service.scalog:"+viper.GetString("orderPort"), opts...)
+	if err != nil {
+		panic(err)
+	}
+	defer conn.Close()
+	client := om.NewOrderClient(conn)
+	stream, err := client.Report(context.Background())
+
+	// Anonymous function for sending tentative cuts to the ordering layer
+	go func() {
+		// TODO: SOMEBODY DO THIS
+		// Use stream.Send()
+	}()
+
+	// Anonymous function for receiving stream inputs
+	go func() {
+		for {
+			in, err := stream.Recv()
+			if err == io.EOF {
+				return
+			}
+			if err != nil {
+				logger.Panicf(err.Error())
+			}
+
+			if len(in.CommittedCuts) != len(server.serverBuffers) {
+				logger.Panicf(
+					fmt.Sprintf(
+						"[Data] Received cut is of irregular length (%d vs %d)",
+						len(in.CommittedCuts),
+						len(server.serverBuffers),
+					),
+				)
+			}
+
+			gsn := int(in.StartGlobalSequenceNum)
+			for idx, cut := range in.CommittedCuts {
+				offset := int(in.Offsets[idx])
+				numLogs := int(cut) - offset
+
+				for i := 0; i < numLogs; i++ {
+					server.serverBuffers[idx][offset+i].commitResp <- gsn
+					gsn++
+				}
+			}
+		}
+	}()
 }
 
 /* Note: This is a blocking operation -- waits until all servers in a shard are up before trying to open

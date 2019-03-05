@@ -2,7 +2,6 @@ package data
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"sync"
 
@@ -67,39 +66,6 @@ func (s *dataServer) Replicate(stream pb.Data_ReplicateServer) error {
 		s.mu.Lock()
 		s.serverBuffers[in.ServerID] = append(s.serverBuffers[in.ServerID], Record{record: in.Record})
 		s.mu.Unlock()
-	}
-}
-
-func (s *dataServer) Commit(stream pb.Data_CommitServer) error {
-	for {
-		in, err := stream.Recv()
-		if err == io.EOF {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-
-		if len(in.CommittedCuts) != len(s.serverBuffers) {
-			return fmt.Errorf(
-				fmt.Sprintf(
-					"[Data] Received cut is of irregular length (%d vs %d)",
-					len(in.CommittedCuts),
-					len(s.serverBuffers),
-				),
-			)
-		}
-
-		gsn := int(in.StartGlobalSequenceNum)
-		for idx, cut := range in.CommittedCuts {
-			offset := int(in.Offsets[idx])
-			numLogs := int(cut) - offset
-
-			for i := 0; i < numLogs; i++ {
-				s.serverBuffers[idx][offset+i].commitResp <- gsn
-				gsn += 1
-			}
-		}
 	}
 }
 
