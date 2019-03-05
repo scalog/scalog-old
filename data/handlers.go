@@ -27,9 +27,6 @@ type dataServer struct {
 	// Main storage stacks for incoming records
 	// TODO: evantzhao use goroutines and channels to update this instead of mutex
 	serverBuffers [][]Record
-	// lastCommitedRecords stores the integer value of the last commited
-	// value in each server buffer
-	lastCommitedRecords []int
 	// Protects all internal structures
 	mu sync.Mutex
 	// Live connections to other servers inside the shard -- used for replication
@@ -83,23 +80,24 @@ func (s *dataServer) Commit(stream pb.Data_CommitServer) error {
 			return err
 		}
 
-		if len(in.Cut) != len(s.serverBuffers) {
+		if len(in.CommittedCuts) != len(s.serverBuffers) {
 			return fmt.Errorf(
 				fmt.Sprintf(
 					"[Data] Received cut is of irregular length (%d vs %d)",
-					len(in.Cut),
+					len(in.CommittedCuts),
 					len(s.serverBuffers),
 				),
 			)
 		}
 
-		offset := 0
-		for idx, latest := range in.Cut {
-			for lastSeen := s.lastCommitedRecords[idx]; lastSeen < int(latest); lastSeen++ {
-				gsn := int(in.Offset) + offset
-				offset++
-				s.serverBuffers[idx][lastSeen].commitResp <- gsn
-				s.stableStorage.WriteLog(gsn, s.serverBuffers[idx][lastSeen].record)
+		gsn := int(in.StartGlobalSequenceNum)
+		for idx, cut := range in.CommittedCuts {
+			offset := int(in.Offsets[idx])
+			numLogs := int(cut) - offset
+
+			for i := 0; i < numLogs; i++ {
+				s.serverBuffers[idx][offset+i].commitResp <- gsn
+				gsn += 1
 			}
 		}
 	}

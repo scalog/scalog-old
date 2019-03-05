@@ -37,10 +37,12 @@ message ReplicateRequest {
 message ReplicateResponse {}
 
 message CommitRequest {
-	// Integer offset of the first newly ordered record
-	int32 offset = 1;
+	// Gsn to start counting off of for the 0th server
+	int32 startGlobalSequenceNum = 1;
+	// Offsets of the newly ordered records
+	repeated int32 offsets = 2;
 	// Should be in order of the server ID
-	repeated int32 cut = 2;
+	repeated int32 committedCuts = 3;
 }
 
 message CommitResponse {}
