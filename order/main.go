@@ -20,6 +20,7 @@ func newOrderServer(shardIds []int, numServersPerShard int) *orderServer {
 		shardIds:           shardIds,
 		numServersPerShard: numServersPerShard,
 		mu:                 sync.Mutex{},
+		responseChannels:   initResponseChannels(shardIds, numServersPerShard),
 	}
 }
 

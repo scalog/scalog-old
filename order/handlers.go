@@ -2,12 +2,9 @@ package order
 
 import (
 	"context"
+	pb "github.com/scalog/scalog/order/messaging"
 	"io"
 	"sync"
-	"time"
-
-	dataPb "github.com/scalog/scalog/data/messaging"
-	pb "github.com/scalog/scalog/order/messaging"
 )
 
 // Server's view of latest cuts in all servers of the shard
@@ -22,6 +19,9 @@ type CommittedGlobalCut map[int]ShardCut
 // Number of new logs appended within the previous time period
 type Deltas CommittedGlobalCut
 
+// Map<Shard ID, Channels to write responses to for each server in shard>
+type ResponseChannels map[int][]chan pb.ReportResponse
+
 type orderServer struct {
 	committedGlobalCut CommittedGlobalCut
 	contestedGlobalCut ContestedGlobalCut
@@ -29,6 +29,7 @@ type orderServer struct {
 	shardIds           []int
 	numServersPerShard int
 	mu                 sync.Mutex
+	responseChannels   ResponseChannels
 }
 
 func initCommittedCut(shardIds []int, numServersPerShard int) CommittedGlobalCut {
@@ -49,6 +50,18 @@ func initContestedCut(shardIds []int, numServersPerShard int) ContestedGlobalCut
 		cut[shardId] = shardCuts
 	}
 	return cut
+}
+
+func initResponseChannels(shardIds []int, numServersPerShard int) ResponseChannels {
+	channels := make(ResponseChannels, len(shardIds))
+	for _, shardId := range shardIds {
+		channelsForShard := make([]chan pb.ReportResponse, numServersPerShard, numServersPerShard)
+		for i := 0; i < numServersPerShard; i++ {
+			channelsForShard[i] = make(chan pb.ReportResponse)
+		}
+		channels[shardId] = channelsForShard
+	}
+	return channels
 }
 
 /**
@@ -79,7 +92,7 @@ NOTE: Must be called after updateCommittedCuts().
 */
 func (server *orderServer) updateCommittedCutGlobalSeqNumAndBroadcastDeltas(deltas Deltas) {
 	for _, shardId := range server.shardIds {
-		response := dataPb.CommitRequest{
+		response := pb.ReportResponse{
 			StartGlobalSequenceNum: int32(server.globalSequenceNum),
 			Offsets:                intSliceToInt32Slice(server.committedGlobalCut[shardId]),
 		}
@@ -93,15 +106,19 @@ func (server *orderServer) updateCommittedCutGlobalSeqNumAndBroadcastDeltas(delt
 		}
 
 		response.CommittedCuts = intSliceToInt32Slice(server.committedGlobalCut[shardId])
-		server.Respond(response, shardId)
+
+		for i := 0; i < server.numServersPerShard; i++ {
+			server.responseChannels[shardId][i] <- response
+		}
 	}
 }
 
 // Reports final cuts to the data layer periodically
 func (server *orderServer) reportResponseRoutine(stream pb.Order_ReportServer) {
-	for {
-		time.Sleep(500 * time.Millisecond)
-		// TODO: Send response to the data layer by calling stream.Send([obj])
+	shardId := 0 //TODO find shardId
+	num := 0     //TODO
+	for response := range server.responseChannels[shardId][num] {
+		stream.Send(&response)
 	}
 }
 
@@ -126,12 +143,6 @@ func (server *orderServer) Report(stream pb.Order_ReportServer) error {
 			server.contestedGlobalCut[int(req.ShardID)][req.ReplicaID][i] = max(curr, cut[i])
 		}
 		server.mu.Unlock()
-	}
-}
-
-func (server *orderServer) Respond(req dataPb.CommitRequest, shardId int) {
-	for i := 0; i < server.numServersPerShard; i++ {
-		//TODO send response to data layer
 	}
 }
 
