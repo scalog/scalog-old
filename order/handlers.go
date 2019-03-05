@@ -45,14 +45,62 @@ func initContestedCut(shardIds []string, numServersPerShard int) ContestedGlobal
 	return cut
 }
 
-func (server *orderServer) mergeContestedCuts() {
-	//for _, shardId := range server.shardIds {
-	//
-	//}
+/**
+Find min cut for each shard and compute changes from last committed cuts.
+*/
+func (server *orderServer) mergeContestedCuts() Deltas {
+	deltas := initCommittedCut(server.shardIds, server.numServersPerShard)
+
+	for _, shardId := range server.shardIds {
+		// find smallest cut for shard i
+		for i := 0; i < server.numServersPerShard; i++ {
+			minCut := 0
+			for j := 0; j < server.numServersPerShard; j++ {
+				minCut = min(server.contestedGlobalCut[shardId][j][i], minCut)
+			}
+
+			prevCut := server.committedGlobalCut[shardId][i]
+			deltas[shardId][i] = minCut - prevCut
+		}
+	}
+
+	return Deltas(deltas)
+}
+
+/**
+Use deltas to increment committed cuts.
+*/
+func (server *orderServer) updateCommittedCuts(deltas Deltas) {
+	for _, shardId := range server.shardIds {
+		for i := 0; i < server.numServersPerShard; i++ {
+			server.committedGlobalCut[shardId][i] += deltas[shardId][i]
+		}
+	}
+}
+
+/**
+Compute global sequence number for each server and send update message.
+*/
+func (server *orderServer) updateGlobalSeqNumAndBroadcastDeltas(deltas Deltas) {
+	for _, shardId := range server.shardIds {
+		for i := 0; i < server.numServersPerShard; i++ {
+			delta := deltas[shardId][i]
+
+			prevSequenceNum := server.globalSequenceNum
+			newSequenceNum := prevSequenceNum + delta
+
+			//server.Respond() TODO
+			server.globalSequenceNum = newSequenceNum
+		}
+	}
 }
 
 func (server *orderServer) Report(ctx context.Context, req *pb.ReportRequest) (*pb.ReportResponse, error) {
 	return nil, nil
+}
+
+func (server *orderServer) Respond(ctx context.Context) error {
+	return nil
 }
 
 func (server *orderServer) Register(ctx context.Context, req *pb.RegisterRequest) (*pb.RegisterResponse, error) {
@@ -61,4 +109,11 @@ func (server *orderServer) Register(ctx context.Context, req *pb.RegisterRequest
 
 func (server *orderServer) Finalize(ctx context.Context, req *pb.FinalizeRequest) (*pb.FinalizeResponse, error) {
 	return nil, nil
+}
+
+func min(a int, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
