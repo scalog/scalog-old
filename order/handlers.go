@@ -102,7 +102,7 @@ func (server *orderServer) updateCommittedCutGlobalSeqNumAndBroadcastDeltas(delt
 
 			// calculate new committed cuts
 			server.committedGlobalCut[shardId][i] += delta
-			server.globalSequenceNum = server.globalSequenceNum + delta
+			server.globalSequenceNum += delta
 		}
 
 		response.CommittedCuts = intSliceToInt32Slice(server.committedGlobalCut[shardId])
