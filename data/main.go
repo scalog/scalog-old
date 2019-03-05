@@ -107,8 +107,19 @@ func (server *dataServer) sendTentativeCuts() {
 
 	// Anonymous function for sending tentative cuts to the ordering layer
 	go func() {
-		// TODO: SOMEBODY DO THIS
-		// Use stream.Send()
+		for {
+			cut := make([]int32, viper.GetInt("serverCount"))
+			for idx, buf := range server.serverBuffers {
+				cut[idx] = int32(len(buf))
+			}
+			reportReq := &om.ReportRequest{
+				ShardID:      viper.GetInt32("shardID"),
+				ReplicaID:    viper.GetInt32("id"),
+				TentativeCut: cut,
+			}
+			stream.Send(reportReq)
+			time.Sleep(500 * time.Millisecond)
+		}
 	}()
 
 	// Anonymous function for receiving stream inputs
