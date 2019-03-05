@@ -138,14 +138,14 @@ func (server *orderServer) Report(stream pb.Order_ReportServer) error {
 			spawned = true
 		}
 
-		cut := make(ShardCut, server.numServersPerShard)
+		cut := make(ShardCut, server.numServersPerShard, server.numServersPerShard)
 		for i := 0; i < len(cut); i++ {
 			cut[i] = int(req.TentativeCut[i])
 		}
 		server.mu.Lock()
 		for i := 0; i < len(cut); i++ {
-			curr := server.contestedGlobalCut[int(req.ShardID)][req.ReplicaID][i]
-			server.contestedGlobalCut[int(req.ShardID)][req.ReplicaID][i] = max(curr, cut[i])
+			curr := server.contestedGlobalCut[int(req.ShardID)][int(req.ReplicaID)][i]
+			server.contestedGlobalCut[int(req.ShardID)][int(req.ReplicaID)][i] = max(curr, cut[i])
 		}
 		server.mu.Unlock()
 	}
