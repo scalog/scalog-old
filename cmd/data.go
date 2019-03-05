@@ -27,16 +27,20 @@ import (
 var serverCount int
 var localRun bool
 
-func parsePodName(podName string) (string, int) {
+func parsePodName(podName string) (string, int, int) {
 	splitPodName := strings.Split(podName, "-")
 	shardGroup := strings.Join(splitPodName[:len(splitPodName)-1], "-")
-	viper.SetDefault("shardGroup", shardGroup)
+	shardID, err := strconv.Atoi(splitPodName[len(splitPodName)-2])
+	if err != nil {
+		return "", -1, -1
+	}
 	replicaID, err := strconv.Atoi(splitPodName[len(splitPodName)-1])
 	if err != nil {
 		replicaID = -1
 		shardGroup = ""
+		shardID = -1
 	}
-	return shardGroup, replicaID
+	return shardGroup, replicaID, shardID
 }
 
 func init() {
@@ -63,8 +67,9 @@ func init() {
 	viper.BindEnv("pod_ip")
 
 	viper.SetDefault("name", "no-service-name")
-	shardGroup, replicaID := parsePodName(viper.GetString("name"))
+	shardGroup, replicaID, shardID := parsePodName(viper.GetString("name"))
 	viper.SetDefault("shardGroup", shardGroup)
+	viper.SetDefault("shardID", shardID)
 	dataCmd.PersistentFlags().Int("id", replicaID, "Replica id")
 	viper.BindPFlag("id", dataCmd.PersistentFlags().Lookup("id"))
 }
