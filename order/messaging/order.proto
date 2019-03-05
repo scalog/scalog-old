@@ -6,7 +6,7 @@ package messaging;
 gRPC for Order layer of Scalog
 */
 service Order {
-    rpc Report(ReportRequest) returns (ReportResponse) {}
+    rpc Report(stream ReportRequest) returns (stream ReportResponse) {}
 
     rpc Register(RegisterRequest) returns (RegisterResponse) {}
 
@@ -19,7 +19,14 @@ message ReportRequest {
     repeated int32 tentativeCut = 3;
 }
 
-message ReportResponse {}
+message ReportResponse {
+    // Gsn to start counting off of for the 0th server
+	int32 startGlobalSequenceNum = 1;
+	// Offsets of the newly ordered records
+	repeated int32 offsets = 2;
+	// Should be in order of the server ID
+	repeated int32 committedCuts = 3;
+}
 
 message RegisterRequest {
     int32 shardID = 1;

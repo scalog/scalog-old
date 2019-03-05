@@ -2,7 +2,9 @@ package order
 
 import (
 	"context"
+	"io"
 	"sync"
+	"time"
 
 	dataPb "github.com/scalog/scalog/data/messaging"
 	pb "github.com/scalog/scalog/order/messaging"
@@ -95,19 +97,36 @@ func (server *orderServer) updateCommittedCutGlobalSeqNumAndBroadcastDeltas(delt
 	}
 }
 
-func (server *orderServer) Report(ctx context.Context, req *pb.ReportRequest) (*pb.ReportResponse, error) {
-	cut := make(ShardCut, server.numServersPerShard)
-	for i := 0; i < len(cut); i++ {
-		cut[i] = int(req.TentativeCut[i])
+// Reports final cuts to the data layer periodically
+func (server *orderServer) reportResponseRoutine(stream pb.Order_ReportServer) {
+	for {
+		time.Sleep(500 * time.Millisecond)
+		// TODO: Send response to the data layer by calling stream.Send([obj])
 	}
-	server.mu.Lock()
-	for i := 0; i < len(cut); i++ {
-		curr := server.contestedGlobalCut[int(req.ShardID)][req.ReplicaID][i]
-		server.contestedGlobalCut[int(req.ShardID)][req.ReplicaID][i] = max(curr, cut[i])
+}
+
+func (server *orderServer) Report(stream pb.Order_ReportServer) error {
+	// Boot routine for periodically responding to data layer
+	go server.reportResponseRoutine(stream)
+	for {
+		req, err := stream.Recv()
+		if err == io.EOF {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		cut := make(ShardCut, server.numServersPerShard)
+		for i := 0; i < len(cut); i++ {
+			cut[i] = int(req.TentativeCut[i])
+		}
+		server.mu.Lock()
+		for i := 0; i < len(cut); i++ {
+			curr := server.contestedGlobalCut[int(req.ShardID)][req.ReplicaID][i]
+			server.contestedGlobalCut[int(req.ShardID)][req.ReplicaID][i] = max(curr, cut[i])
+		}
+		server.mu.Unlock()
 	}
-	server.mu.Unlock()
-	// Report is not required to respond to data layer
-	return nil, nil
 }
 
 func (server *orderServer) Respond(req dataPb.CommitRequest, shardId int) {
