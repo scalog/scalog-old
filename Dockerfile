@@ -17,7 +17,7 @@ RUN set -x && \
 # Build the Go app
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -ldflags '-extldflags "-static"' -o scalog .
 
-######## Start a new stage from scratch #######
+######## Start a new stage from scratch for data layer #######
 FROM alpine:latest  
 
 RUN apk --no-cache add ca-certificates
