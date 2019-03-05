@@ -1,0 +1,23 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: scalog-order-deployment
+  namespace: scalog
+  labels:
+    app: scalog-order
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: scalog-order
+  template:
+    metadata:
+      labels:
+        app: scalog-order
+    spec:
+      containers:
+      - name: scalog-order-singleton
+        image: scalog-order
+        imagePullPolicy: Never
+        ports:
+        - containerPort: 8080
