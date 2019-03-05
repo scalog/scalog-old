@@ -2,14 +2,16 @@ package order
 
 import (
 	"fmt"
-	"github.com/scalog/scalog/logger"
-	"github.com/scalog/scalog/order/messaging"
-	"github.com/spf13/viper"
-	"google.golang.org/grpc"
 	"log"
 	"net"
 	"sync"
 	"time"
+
+	"github.com/scalog/scalog/logger"
+	"github.com/scalog/scalog/order/messaging"
+	"github.com/spf13/viper"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/keepalive"
 )
 
 func newOrderServer(shardIds []int, numServersPerShard int) *orderServer {
@@ -38,7 +40,11 @@ func Start() {
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
 	}
-	grpcServer := grpc.NewServer()
+	grpcServer := grpc.NewServer(
+		grpc.KeepaliveParams(keepalive.ServerParameters{
+			MaxConnectionIdle: 5 * time.Minute,
+		}),
+	)
 	orderServer := newOrderServer(make([]int, 1, 1), 2) // todo fix hard-coded parameters
 	messaging.RegisterOrderServer(grpcServer, orderServer)
 	logger.Printf("Order layer server %d available on %d\n", viper.Get("asdf"), viper.Get("port"))

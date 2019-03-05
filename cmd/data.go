@@ -70,6 +70,7 @@ func init() {
 	shardGroup, replicaID, shardID := parsePodName(viper.GetString("name"))
 	viper.SetDefault("shardGroup", shardGroup)
 	viper.SetDefault("shardID", shardID)
+	viper.SetDefault("orderPort", 21024)
 	dataCmd.PersistentFlags().Int("id", replicaID, "Replica id")
 	viper.BindPFlag("id", dataCmd.PersistentFlags().Lookup("id"))
 }

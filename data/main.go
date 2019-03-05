@@ -101,7 +101,6 @@ func (server *dataServer) sendTentativeCuts() {
 	if err != nil {
 		panic(err)
 	}
-	defer conn.Close()
 	client := om.NewOrderClient(conn)
 	stream, err := client.Report(context.Background())
 
@@ -118,6 +117,7 @@ func (server *dataServer) sendTentativeCuts() {
 				ReplicaID:    viper.GetInt32("id"),
 				TentativeCut: cut,
 			}
+			// TODO: Null ptr
 			stream.Send(reportReq)
 		}
 	}()
@@ -187,6 +187,7 @@ func newDataServer() *dataServer {
 		mu:            sync.Mutex{},
 		shardServers:  shardPods,
 	}
+	s.sendTentativeCuts()
 	return s
 }
 

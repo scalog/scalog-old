@@ -20,4 +20,9 @@ spec:
         image: scalog-order
         imagePullPolicy: Never
         ports:
-        - containerPort: 8080
+        - containerPort: 21024
+        env:
+          - name: GRPC_GO_LOG_VERBOSITY_LEVEL
+            value: "99"
+          - name: GRPC_GO_LOG_SEVERITY_LEVEL
+            value: "info"
