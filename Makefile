@@ -10,17 +10,13 @@ build:
 docker-minikube:
 	eval $(minikube docker-env)
 
-build-data:
-	docker-minikube
+build-data: docker-minikube
 	docker build . -t "$(DOCKER_ORDER_IMAGE)" --build-arg image_type=data
 
-build-order:
-	docker-minikube
+build-order: docker-minikube
 	docker build . -t "$(DOCKER_ORDER_IMAGE)" --build-arg image_type=order
 
-deploy:
-	build-data 
-	build-order
+deploy: build-data build-order
 	kubectl create -f data/k8s/namespace.yaml && \
 	kubectl create -f data/k8s/rbac.yaml && \
 	kubectl create -f data/k8s/volumes.yaml && \
