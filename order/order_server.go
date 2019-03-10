@@ -5,6 +5,7 @@ import (
 	"github.com/gogo/protobuf/proto"
 	"github.com/scalog/scalog/logger"
 	pb "github.com/scalog/scalog/order/messaging"
+	"go.etcd.io/etcd/etcdserver/api/snap"
 	"sync"
 	"time"
 )
@@ -33,6 +34,7 @@ type orderServer struct {
 	mu                   sync.Mutex
 	dataResponseChannels ResponseChannels
 	raftProposeChannel   chan<- string
+	raftSnapshotter      *snap.Snapshotter
 }
 
 // Fields in orderServer necessary for state replication. Used in Raft.
@@ -40,11 +42,9 @@ type orderServerState struct {
 	committedGlobalCut CommittedGlobalCut
 	contestedGlobalCut ContestedGlobalCut
 	globalSequenceNum  int
-	shardIds           []int
-	numServersPerShard int
 }
 
-func newOrderServer(shardIds []int, numServersPerShard int, raftProposeChannel chan<- string) *orderServer {
+func newOrderServer(shardIds []int, numServersPerShard int, raftProposeChannel chan<- string, raftSnapshotter *snap.Snapshotter) *orderServer {
 	return &orderServer{
 		committedGlobalCut:   initCommittedCut(shardIds, numServersPerShard),
 		contestedGlobalCut:   initContestedCut(shardIds, numServersPerShard),
@@ -54,6 +54,7 @@ func newOrderServer(shardIds []int, numServersPerShard int, raftProposeChannel c
 		mu:                   sync.Mutex{},
 		dataResponseChannels: initResponseChannels(shardIds, numServersPerShard),
 		raftProposeChannel:   raftProposeChannel,
+		raftSnapshotter:      raftSnapshotter,
 	}
 }
 
@@ -179,9 +180,17 @@ func (server *orderServer) getState() orderServerState {
 		server.committedGlobalCut,
 		server.contestedGlobalCut,
 		server.globalSequenceNum,
-		server.shardIds,
-		server.numServersPerShard,
 	}
+}
+
+/**
+Overwrites current server data with state data.
+NOTE: assumes that shardIds and numServersPerShard do not change. If they change, then we must recreate channels.
+*/
+func (server *orderServer) loadState(state *orderServerState) {
+	server.committedGlobalCut = state.committedGlobalCut
+	server.contestedGlobalCut = state.contestedGlobalCut
+	server.globalSequenceNum = state.globalSequenceNum
 }
 
 /**
@@ -198,6 +207,11 @@ Add contested cuts from the data layer. Triggered when Raft commits the new mess
 */
 func (server *orderServer) listenForRaftCommits(raftCommitChannel <-chan *string) {
 	for requestString := range raftCommitChannel {
+		if requestString == nil {
+			server.attemptRecoverFromSnapshot()
+			continue
+		}
+
 		req := &pb.ReportRequest{}
 		err := proto.Unmarshal([]byte(*requestString), req)
 
@@ -215,6 +229,31 @@ func (server *orderServer) listenForRaftCommits(raftCommitChannel <-chan *string
 			server.contestedGlobalCut[int(req.ShardID)][int(req.ReplicaID)][i] = max(curr, cut[i])
 		}
 	}
+}
+
+/**
+Use snapshot to reload server state.
+*/
+func (server *orderServer) attemptRecoverFromSnapshot() {
+	snapshot, err := server.raftSnapshotter.Load()
+	if err == snap.ErrNoSnapshot {
+		return
+	}
+	if err != nil {
+		logger.Panicf(err.Error())
+	}
+
+	logger.Printf("Ordering layer attempting to recover from Raft snapshot")
+	state := &orderServerState{}
+	err = json.Unmarshal(snapshot.Data, state)
+
+	if err != nil {
+		logger.Panicf(err.Error())
+	}
+
+	server.mu.Lock()
+	server.loadState(state)
+	server.mu.Unlock()
 }
 
 ////////////////////// UTIL FUNCTIONS
