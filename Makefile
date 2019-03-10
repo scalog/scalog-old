@@ -11,7 +11,7 @@ docker-minikube:
 	eval $(minikube docker-env)
 
 build-data: docker-minikube
-	docker build . -t "$(DOCKER_ORDER_IMAGE)" --build-arg image_type=data
+	docker build . -t "$(DOCKER_DATA_IMAGE)" --build-arg image_type=data
 
 build-order: docker-minikube
 	docker build . -t "$(DOCKER_ORDER_IMAGE)" --build-arg image_type=order
