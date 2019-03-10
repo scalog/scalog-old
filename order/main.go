@@ -34,7 +34,7 @@ func Start() {
 		}),
 	)
 	orderServer := newOrderServer(make([]int, 1, 1), 2, raftProposeChannel, raftCommitChannel) // todo fix hard-coded parameters
-	raftErrorChannel, raftSnapshotReadyChannel := newRaftNode(id, peers, false, orderServer.getSnapshot, raftProposeChannel, raftCommitChannel, raftConfigChangeChannel)
+	raftErrorChannel, _ := newRaftNode(id, peers, false, orderServer.getSnapshot, raftProposeChannel, raftCommitChannel, raftConfigChangeChannel)
 
 	messaging.RegisterOrderServer(grpcServer, orderServer)
 	logger.Printf("Order layer server %d available on %d\n", viper.Get("asdf"), viper.Get("port"))
