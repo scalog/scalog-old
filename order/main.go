@@ -35,7 +35,7 @@ func startRespondingToDataLayer(server *orderServer) {
 }
 
 func Start() {
-	logger.Printf("Ordering layer server %d started on %d\n", viper.Get("asdf"), viper.Get("port"))
+	logger.Printf("Ordering layer server started on %d\n", viper.Get("port"))
 	lis, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", viper.Get("port")))
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
@@ -47,7 +47,7 @@ func Start() {
 	)
 	orderServer := newOrderServer(make([]int, 1, 1), 2) // todo fix hard-coded parameters
 	messaging.RegisterOrderServer(grpcServer, orderServer)
-	logger.Printf("Order layer server %d available on %d\n", viper.Get("asdf"), viper.Get("port"))
-	grpcServer.Serve(lis)
 	go startRespondingToDataLayer(orderServer)
+	logger.Printf("Order layer server available on %d\n", viper.Get("port"))
+	grpcServer.Serve(lis)
 }

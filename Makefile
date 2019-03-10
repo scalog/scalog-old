@@ -2,21 +2,25 @@ DOCKER_ORDER_IMAGE = scalog-order
 DOCKER_DATA_IMAGE = scalog-data
 
 default:
-	@echo Scalog script operator
+	@echo Scalog script operator. Make sure that you run eval (docker-minikube) prior to running any of these commands.
 
-build:
-	go build
+dep:
+	dep ensure -v
 
-docker-minikube:
-	eval $(minikube docker-env)
+build: dep
+	CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -ldflags '-extldflags "-static"' -o scalog .
 
-build-data: docker-minikube
-	docker build . -t "$(DOCKER_DATA_IMAGE)" --build-arg image_type=data
+docker-data: build
+	docker build . -f Dockerfile.data -t "$(DOCKER_DATA_IMAGE)"
 
-build-order: docker-minikube
-	docker build . -t "$(DOCKER_ORDER_IMAGE)" --build-arg image_type=order
+docker-order: build
+	docker build . -f Dockerfile.order -t "$(DOCKER_ORDER_IMAGE)"
 
-deploy: build-data build-order
+docker-build: build
+	docker build . -f Dockerfile.data -t "$(DOCKER_DATA_IMAGE)"
+	docker build . -f Dockerfile.order -t "$(DOCKER_ORDER_IMAGE)"
+
+deploy: docker-build
 	kubectl create -f data/k8s/namespace.yaml && \
 	kubectl create -f data/k8s/rbac.yaml && \
 	kubectl create -f data/k8s/volumes.yaml && \
@@ -25,8 +29,19 @@ deploy: build-data build-order
 	kubectl create -f order/k8s/service.yaml && \
 	kubectl create -f order/k8s/deployment.yaml
 
-refresh-image:
-	kubectl delete -f data/k8s/controller.yaml && \
-	kubectl create -f data/k8s/controller.yaml && \
+refresh-image: refresh-data
 	kubectl delete -f order/k8s/deployment.yaml && \
 	kubectl create -f order/k8s/deployment.yaml
+
+refresh-data:
+	kubectl delete -f data/k8s/controller.yaml && \
+	kubectl create -f data/k8s/controller.yaml
+
+destroy:
+	kubectl delete -f order/k8s/deployment.yaml && \
+	kubectl delete -f order/k8s/service.yaml && \
+	kubectl delete -f data/k8s/controller.yaml && \
+	kubectl delete -f data/k8s/service.yaml && \
+	kubectl delete -f data/k8s/volumes.yaml && \
+	kubectl delete -f data/k8s/rbac.yaml && \
+	kubectl delete -f data/k8s/namespace.yaml

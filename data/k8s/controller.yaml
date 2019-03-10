@@ -1,7 +1,7 @@
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: scalog-data-shard-1 # has to match template.metadata.labels.tier
+  name: scalog-data-shard-0 # has to match template.metadata.labels.tier
   namespace: scalog
 spec:
   selector:
@@ -13,7 +13,7 @@ spec:
     metadata:
       labels:
         app: scalog-data # has to match .spec.selector.matchLabels
-        tier: scalog-data-shard-1 # has to match metadata.name
+        tier: scalog-data-shard-0 # has to match metadata.name
     spec:
       terminationGracePeriodSeconds: 10
       serviceAccountName: scalog-data-service-account
@@ -22,7 +22,7 @@ spec:
           persistentVolumeClaim:
             claimName: scalog-stable-storage-claim
       containers:
-        - name: scalog-data-shard1
+        - name: scalog-data-shard0
           image: scalog-data
           imagePullPolicy: Never
           volumeMounts:

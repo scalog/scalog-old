@@ -32,7 +32,6 @@ func podConn(podIP string, ch chan messaging.ReplicateRequest) {
 	if err != nil {
 		panic(err)
 	}
-	defer conn.Close()
 	client := messaging.NewDataClient(conn)
 	stream, err := client.Replicate(context.Background())
 

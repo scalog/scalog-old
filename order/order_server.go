@@ -1,8 +1,11 @@
 package order
 
 import (
-	pb "github.com/scalog/scalog/order/messaging"
 	"sync"
+
+	"github.com/scalog/scalog/logger"
+
+	pb "github.com/scalog/scalog/order/messaging"
 )
 
 // Server's view of latest cuts in all servers of the shard
@@ -116,6 +119,7 @@ func (server *orderServer) reportResponseRoutine(stream pb.Order_ReportServer, r
 	shardId := int(req.ShardID)
 	num := req.ReplicaID
 	for response := range server.responseChannels[shardId][num] {
+		logger.Printf(response.String())
 		stream.Send(&response)
 	}
 }

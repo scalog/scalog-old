@@ -1,0 +1,17 @@
+# Dockerfile References: https://docs.docker.com/engine/reference/builder/
+
+######## Copy over a locally built image into a lightweight container #######
+FROM alpine:latest
+
+RUN apk --no-cache add ca-certificates
+
+WORKDIR /root/
+
+# Copy the Pre-built binary file from the previous stage
+COPY /scalog /app/
+
+WORKDIR /app
+
+EXPOSE 21024
+
+CMD ["./scalog", "order"]
