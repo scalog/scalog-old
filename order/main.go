@@ -33,7 +33,7 @@ func Start() {
 			MaxConnectionIdle: 5 * time.Minute,
 		}),
 	)
-	orderServer := newOrderServer(make([]int, 1, 1), 2, raftProposeChannel, raftCommitChannel) // todo fix hard-coded parameters
+	orderServer := newOrderServer(make([]int, 1, 1), 2, raftProposeChannel) // todo fix hard-coded parameters
 	raftErrorChannel, _ := newRaftNode(id, peers, false, orderServer.getSnapshot, raftProposeChannel, raftCommitChannel, raftConfigChangeChannel)
 
 	messaging.RegisterOrderServer(grpcServer, orderServer)
@@ -41,7 +41,7 @@ func Start() {
 	grpcServer.Serve(lis)
 
 	go orderServer.respondToDataLayer()
-	go orderServer.listenForRaftCommits()
+	go orderServer.listenForRaftCommits(raftCommitChannel)
 	go listenForErrors(raftErrorChannel)
 }
 

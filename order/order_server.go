@@ -33,7 +33,6 @@ type orderServer struct {
 	mu                   sync.Mutex
 	dataResponseChannels ResponseChannels
 	raftProposeChannel   chan<- string
-	raftCommitChannel    <-chan *string
 }
 
 // Fields in orderServer necessary for state replication. Used in Raft.
@@ -45,7 +44,7 @@ type orderServerState struct {
 	numServersPerShard int
 }
 
-func newOrderServer(shardIds []int, numServersPerShard int, raftProposeChannel chan<- string, raftCommitChannel <-chan *string) *orderServer {
+func newOrderServer(shardIds []int, numServersPerShard int, raftProposeChannel chan<- string) *orderServer {
 	return &orderServer{
 		committedGlobalCut:   initCommittedCut(shardIds, numServersPerShard),
 		contestedGlobalCut:   initContestedCut(shardIds, numServersPerShard),
@@ -55,7 +54,6 @@ func newOrderServer(shardIds []int, numServersPerShard int, raftProposeChannel c
 		mu:                   sync.Mutex{},
 		dataResponseChannels: initResponseChannels(shardIds, numServersPerShard),
 		raftProposeChannel:   raftProposeChannel,
-		raftCommitChannel:    raftCommitChannel,
 	}
 }
 
@@ -198,8 +196,8 @@ func (server *orderServer) getSnapshot() ([]byte, error) {
 /**
 Add contested cuts from the data layer. Triggered when Raft commits the new message.
 */
-func (server *orderServer) listenForRaftCommits() {
-	for requestString := range server.raftCommitChannel {
+func (server *orderServer) listenForRaftCommits(raftCommitChannel <-chan *string) {
+	for requestString := range raftCommitChannel {
 		req := &pb.ReportRequest{}
 		err := proto.Unmarshal([]byte(*requestString), req)
 
