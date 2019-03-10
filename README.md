@@ -32,3 +32,7 @@ git clone https://github.com/scalog/scalog.git
 
 ## Updating dependencies
 Run `dep ensure` in `~/go/src/github.com/scalog/scalog`. This should update your `Gopkg.lock` and `Gopkg.toml` files.
+
+## Running Scalog
+
+This project is a work in progress. While the kubernetes operator is being implemented, Scalog can be run using a series of scripts. 
