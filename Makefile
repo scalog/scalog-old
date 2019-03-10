@@ -19,6 +19,8 @@ build-order:
 	docker build . -t "$(DOCKER_ORDER_IMAGE)" --build-arg image_type=order
 
 deploy:
+	build-data 
+	build-order
 	kubectl create -f data/k8s/namespace.yaml && \
 	kubectl create -f data/k8s/rbac.yaml && \
 	kubectl create -f data/k8s/volumes.yaml && \
