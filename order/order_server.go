@@ -1,8 +1,12 @@
 package order
 
 import (
+	"encoding/json"
+	"github.com/gogo/protobuf/proto"
+	"github.com/scalog/scalog/logger"
 	pb "github.com/scalog/scalog/order/messaging"
 	"sync"
+	"time"
 )
 
 // Server's view of latest cuts in all servers of the shard
@@ -21,13 +25,38 @@ type Deltas CommittedGlobalCut
 type ResponseChannels map[int][]chan pb.ReportResponse
 
 type orderServer struct {
+	committedGlobalCut   CommittedGlobalCut
+	contestedGlobalCut   ContestedGlobalCut
+	globalSequenceNum    int
+	shardIds             []int
+	numServersPerShard   int
+	mu                   sync.Mutex
+	dataResponseChannels ResponseChannels
+	raftProposeChannel   chan<- string
+	raftCommitChannel    <-chan *string
+}
+
+// Fields in orderServer necessary for state replication. Used in Raft.
+type orderServerState struct {
 	committedGlobalCut CommittedGlobalCut
 	contestedGlobalCut ContestedGlobalCut
 	globalSequenceNum  int
 	shardIds           []int
 	numServersPerShard int
-	mu                 sync.Mutex
-	responseChannels   ResponseChannels
+}
+
+func newOrderServer(shardIds []int, numServersPerShard int, raftProposeChannel chan<- string, raftCommitChannel <-chan *string) *orderServer {
+	return &orderServer{
+		committedGlobalCut:   initCommittedCut(shardIds, numServersPerShard),
+		contestedGlobalCut:   initContestedCut(shardIds, numServersPerShard),
+		globalSequenceNum:    0,
+		shardIds:             shardIds,
+		numServersPerShard:   numServersPerShard,
+		mu:                   sync.Mutex{},
+		dataResponseChannels: initResponseChannels(shardIds, numServersPerShard),
+		raftProposeChannel:   raftProposeChannel,
+		raftCommitChannel:    raftCommitChannel,
+	}
 }
 
 func initCommittedCut(shardIds []int, numServersPerShard int) CommittedGlobalCut {
@@ -90,6 +119,8 @@ NOTE: Must be called after updateCommittedCuts().
 */
 func (server *orderServer) updateCommittedCutGlobalSeqNumAndBroadcastDeltas(deltas Deltas) {
 	for _, shardId := range server.shardIds {
+		startSequenceNum := server.globalSequenceNum
+
 		response := pb.ReportResponse{
 			StartGlobalSequenceNum: int32(server.globalSequenceNum),
 			Offsets:                intSliceToInt32Slice(server.committedGlobalCut[shardId]),
@@ -103,22 +134,92 @@ func (server *orderServer) updateCommittedCutGlobalSeqNumAndBroadcastDeltas(delt
 			server.globalSequenceNum += delta
 		}
 
+		// Don't send responses if no new logs are committed
+		if server.globalSequenceNum == startSequenceNum {
+			continue
+		}
+
 		response.CommittedCuts = intSliceToInt32Slice(server.committedGlobalCut[shardId])
 
 		for i := 0; i < server.numServersPerShard; i++ {
-			server.responseChannels[shardId][i] <- response
+			server.dataResponseChannels[shardId][i] <- response
 		}
 	}
 }
 
-// Reports final cuts to the data layer periodically
+////////////////////// DATA LAYER GRPC FUNCTIONS
+
+/**
+Periodically merge contested cuts and broadcast to data layer. Sends responses into ResponseChannels.
+*/
+func (server *orderServer) respondToDataLayer() {
+	ticker := time.NewTicker(100 * time.Microsecond) // todo remove hard-coded interval
+	for range ticker.C {
+		deltas := server.mergeContestedCuts()
+		server.updateCommittedCutGlobalSeqNumAndBroadcastDeltas(deltas)
+	}
+}
+
+/**
+Reports final cuts to the data layer periodically. Reads from ResponseChannels and feeds into the stream.
+*/
 func (server *orderServer) reportResponseRoutine(stream pb.Order_ReportServer, req *pb.ReportRequest) {
 	shardId := int(req.ShardID)
 	num := req.ReplicaID
-	for response := range server.responseChannels[shardId][num] {
+	for response := range server.dataResponseChannels[shardId][num] {
 		stream.Send(&response)
 	}
 }
+
+////////////////////// RAFT FUNCTIONS
+
+/**
+Extracts all variables necessary in state replication in orderServer.
+*/
+func (server *orderServer) getState() orderServerState {
+	return orderServerState{
+		server.committedGlobalCut,
+		server.contestedGlobalCut,
+		server.globalSequenceNum,
+		server.shardIds,
+		server.numServersPerShard,
+	}
+}
+
+/**
+Returns all stored data.
+*/
+func (server *orderServer) getSnapshot() ([]byte, error) {
+	server.mu.Lock()
+	defer server.mu.Unlock()
+	return json.Marshal(server.getState())
+}
+
+/**
+Add contested cuts from the data layer. Triggered when Raft commits the new message.
+*/
+func (server *orderServer) listenForRaftCommits() {
+	for requestString := range server.raftCommitChannel {
+		req := &pb.ReportRequest{}
+		err := proto.Unmarshal([]byte(*requestString), req)
+
+		if err != nil {
+			logger.Printf("Could not unmarshal raft commit message")
+		}
+
+		//save into contested cuts
+		cut := make(ShardCut, server.numServersPerShard, server.numServersPerShard)
+		for i := 0; i < len(cut); i++ {
+			cut[i] = int(req.TentativeCut[i])
+		}
+		for i := 0; i < len(cut); i++ {
+			curr := server.contestedGlobalCut[int(req.ShardID)][int(req.ReplicaID)][i]
+			server.contestedGlobalCut[int(req.ShardID)][int(req.ReplicaID)][i] = max(curr, cut[i])
+		}
+	}
+}
+
+////////////////////// UTIL FUNCTIONS
 
 func max(x int, y int) int {
 	if x < y {

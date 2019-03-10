@@ -2,9 +2,10 @@ package order
 
 import (
 	"fmt"
+	"go.etcd.io/etcd/raft/raftpb"
 	"log"
 	"net"
-	"sync"
+	"strings"
 	"time"
 
 	"github.com/scalog/scalog/logger"
@@ -14,40 +15,38 @@ import (
 	"google.golang.org/grpc/keepalive"
 )
 
-func newOrderServer(shardIds []int, numServersPerShard int) *orderServer {
-	return &orderServer{
-		committedGlobalCut: initCommittedCut(shardIds, numServersPerShard),
-		contestedGlobalCut: initContestedCut(shardIds, numServersPerShard),
-		globalSequenceNum:  0,
-		shardIds:           shardIds,
-		numServersPerShard: numServersPerShard,
-		mu:                 sync.Mutex{},
-		responseChannels:   initResponseChannels(shardIds, numServersPerShard),
-	}
-}
-
-func startRespondingToDataLayer(server *orderServer) {
-	ticker := time.NewTicker(100 * time.Microsecond) // todo remove hard-coded interval
-	for range ticker.C {
-		deltas := server.mergeContestedCuts()
-		server.updateCommittedCutGlobalSeqNumAndBroadcastDeltas(deltas)
-	}
-}
-
 func Start() {
 	logger.Printf("Ordering layer server %d started on %d\n", viper.Get("asdf"), viper.Get("port"))
 	lis, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", viper.Get("port")))
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
 	}
+
+	id := 1                                              //TODO change to be unique for all ordering servers
+	peers := strings.Split("http://127.0.0.1:9021", ",") //TODO change string to list of URLs
+	raftProposeChannel := make(chan string)
+	raftCommitChannel := make(chan *string)
+	raftConfigChangeChannel := make(chan raftpb.ConfChange)
+
 	grpcServer := grpc.NewServer(
 		grpc.KeepaliveParams(keepalive.ServerParameters{
 			MaxConnectionIdle: 5 * time.Minute,
 		}),
 	)
-	orderServer := newOrderServer(make([]int, 1, 1), 2) // todo fix hard-coded parameters
+	orderServer := newOrderServer(make([]int, 1, 1), 2, raftProposeChannel, raftCommitChannel) // todo fix hard-coded parameters
+	raftErrorChannel, raftSnapshotReadyChannel := newRaftNode(id, peers, false, orderServer.getSnapshot, raftProposeChannel, raftCommitChannel, raftConfigChangeChannel)
+
 	messaging.RegisterOrderServer(grpcServer, orderServer)
 	logger.Printf("Order layer server %d available on %d\n", viper.Get("asdf"), viper.Get("port"))
 	grpcServer.Serve(lis)
-	go startRespondingToDataLayer(orderServer)
+
+	go orderServer.respondToDataLayer()
+	go orderServer.listenForRaftCommits()
+	go listenForErrors(raftErrorChannel)
+}
+
+func listenForErrors(errorChannel <-chan error) {
+	for err := range errorChannel {
+		logger.Printf("Raft error: " + err.Error())
+	}
 }
