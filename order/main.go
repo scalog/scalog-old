@@ -2,7 +2,6 @@ package order
 
 import (
 	"fmt"
-	"go.etcd.io/etcd/etcdserver/api/snap"
 	"go.etcd.io/etcd/raft/raftpb"
 	"log"
 	"net"
@@ -28,7 +27,6 @@ func Start() {
 	raftProposeChannel := make(chan string)
 	raftCommitChannel := make(chan *string)
 	raftConfigChangeChannel := make(chan raftpb.ConfChange)
-	raftSnapshotter := make(chan *snap.Snapshotter, 1)
 
 	grpcServer := grpc.NewServer(
 		grpc.KeepaliveParams(keepalive.ServerParameters{
@@ -38,7 +36,7 @@ func Start() {
 
 	var server *orderServer
 	// todo fix hard-coded parameters
-	raftErrorChannel, _ := newRaftNode(id, peers, false, server.getSnapshot, raftProposeChannel, raftCommitChannel, raftConfigChangeChannel)
+	raftErrorChannel, raftSnapshotter := newRaftNode(id, peers, false, server.getSnapshot, raftProposeChannel, raftCommitChannel, raftConfigChangeChannel)
 	server = newOrderServer(make([]int, 1, 1), 2, raftProposeChannel, <-raftSnapshotter)
 
 	messaging.RegisterOrderServer(grpcServer, server)
