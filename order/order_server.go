@@ -166,6 +166,7 @@ func (server *orderServer) reportResponseRoutine(stream pb.Order_ReportServer, r
 	shardId := int(req.ShardID)
 	num := req.ReplicaID
 	for response := range server.dataResponseChannels[shardId][num] {
+		logger.Printf(response.String())
 		stream.Send(&response)
 	}
 }

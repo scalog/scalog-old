@@ -2,6 +2,7 @@ package order
 
 import (
 	"fmt"
+	"go.etcd.io/etcd/etcdserver/api/snap"
 	"go.etcd.io/etcd/raft/raftpb"
 	"log"
 	"net"
@@ -16,7 +17,7 @@ import (
 )
 
 func Start() {
-	logger.Printf("Ordering layer server %d started on %d\n", viper.Get("asdf"), viper.Get("port"))
+	logger.Printf("Ordering layer server started on %d\n", viper.Get("port"))
 	lis, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", viper.Get("port")))
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
@@ -27,22 +28,27 @@ func Start() {
 	raftProposeChannel := make(chan string)
 	raftCommitChannel := make(chan *string)
 	raftConfigChangeChannel := make(chan raftpb.ConfChange)
+	raftSnapshotter := make(chan *snap.Snapshotter, 1)
 
 	grpcServer := grpc.NewServer(
 		grpc.KeepaliveParams(keepalive.ServerParameters{
 			MaxConnectionIdle: 5 * time.Minute,
 		}),
 	)
-	orderServer := newOrderServer(make([]int, 1, 1), 2, raftProposeChannel) // todo fix hard-coded parameters
-	raftErrorChannel, _ := newRaftNode(id, peers, false, orderServer.getSnapshot, raftProposeChannel, raftCommitChannel, raftConfigChangeChannel)
 
-	messaging.RegisterOrderServer(grpcServer, orderServer)
-	logger.Printf("Order layer server %d available on %d\n", viper.Get("asdf"), viper.Get("port"))
-	grpcServer.Serve(lis)
+	var server *orderServer
+	// todo fix hard-coded parameters
+	raftErrorChannel, _ := newRaftNode(id, peers, false, server.getSnapshot, raftProposeChannel, raftCommitChannel, raftConfigChangeChannel)
+	server = newOrderServer(make([]int, 1, 1), 2, raftProposeChannel, <-raftSnapshotter)
 
-	go orderServer.respondToDataLayer()
-	go orderServer.listenForRaftCommits(raftCommitChannel)
+	messaging.RegisterOrderServer(grpcServer, server)
+	go server.respondToDataLayer()
+	go server.listenForRaftCommits(raftCommitChannel)
 	go listenForErrors(raftErrorChannel)
+
+	logger.Printf("Order layer server %d available on %d\n", viper.Get("asdf"), viper.Get("port"))
+	//Blocking, must be last step
+	grpcServer.Serve(lis)
 }
 
 func listenForErrors(errorChannel <-chan error) {
