@@ -2,7 +2,6 @@ package order
 
 import (
 	"fmt"
-	"go.etcd.io/etcd/raft/raftpb"
 	"log"
 	"net"
 	"strings"
@@ -24,9 +23,6 @@ func Start() {
 
 	id := 1                                              //TODO change to be unique for all ordering servers
 	peers := strings.Split("http://127.0.0.1:9021", ",") //TODO change string to list of URLs
-	raftProposeChannel := make(chan string)
-	raftCommitChannel := make(chan *string)
-	raftConfigChangeChannel := make(chan raftpb.ConfChange)
 
 	grpcServer := grpc.NewServer(
 		grpc.KeepaliveParams(keepalive.ServerParameters{
@@ -35,8 +31,8 @@ func Start() {
 	)
 
 	var server *orderServer
-	// todo fix hard-coded parameters
-	raftErrorChannel, raftSnapshotter := newRaftNode(id, peers, false, server.getSnapshot, raftProposeChannel, raftCommitChannel, raftConfigChangeChannel)
+	raftProposeChannel, raftCommitChannel, raftErrorChannel, raftSnapshotter :=
+		newRaftNode(id, peers, false, server.getSnapshot)
 	server = newOrderServer(make([]int, 1, 1), 2, raftProposeChannel, <-raftSnapshotter)
 
 	messaging.RegisterOrderServer(grpcServer, server)
