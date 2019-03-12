@@ -6,7 +6,7 @@ metadata:
   labels:
     app: scalog-order
 spec:
-  replicas: 1
+  replicas: 2
   selector:
     matchLabels:
       app: scalog-order
@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
       - name: scalog-order-singleton
-        image: scalog-order
+        image: scaland you pasog-order
         imagePullPolicy: Never
         ports:
         - containerPort: 21024
@@ -26,3 +26,7 @@ spec:
             value: "99"
           - name: GRPC_GO_LOG_SEVERITY_LEVEL
             value: "info"
+          - name: ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.uid

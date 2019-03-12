@@ -2,7 +2,7 @@ DOCKER_ORDER_IMAGE = scalog-order
 DOCKER_DATA_IMAGE = scalog-data
 
 default:
-	@echo Scalog script operator. Make sure that you run eval (docker-minikube) prior to running any of these commands.
+	@echo Scalog script operator. Make sure that you run eval \$\(minikube docker-env\) prior to running any of these commands.
 
 dep:
 	dep ensure -v
