@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
       - name: scalog-order-singleton
-        image: scaland you pasog-order
+        image: scalog-order
         imagePullPolicy: Never
         ports:
         - containerPort: 21024
@@ -27,6 +27,6 @@ spec:
           - name: GRPC_GO_LOG_SEVERITY_LEVEL
             value: "info"
           - name: ID
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.uid
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.uid
