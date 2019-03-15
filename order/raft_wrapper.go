@@ -290,7 +290,7 @@ func (rc *raftNode) startRaft() {
 		rpeers[i] = raft.Peer{ID: uint64(i + 1)}
 	}
 	c := &raft.Config{
-		ID:                        uint64(rc.id),
+		ID:                        uint64(rc.id), // ID cannot be zero
 		ElectionTick:              10,
 		HeartbeatTick:             1,
 		Storage:                   rc.raftStorage,
@@ -475,7 +475,6 @@ func (rc *raftNode) serveRaft() {
 	if err != nil {
 		log.Fatalf("raftexample: Failed parsing URL (%v)", err)
 	}
-
 	ln, err := newStoppableListener(url.Host, rc.httpstopc)
 	if err != nil {
 		log.Fatalf("raftexample: Failed to listen rafthttp (%v)", err)

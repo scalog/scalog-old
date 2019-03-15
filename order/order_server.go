@@ -2,12 +2,13 @@ package order
 
 import (
 	"encoding/json"
+	"sync"
+	"time"
+
 	"github.com/gogo/protobuf/proto"
 	"github.com/scalog/scalog/logger"
 	pb "github.com/scalog/scalog/order/messaging"
 	"go.etcd.io/etcd/etcdserver/api/snap"
-	"sync"
-	"time"
 )
 
 // Server's view of latest cuts in all servers of the shard
@@ -215,7 +216,6 @@ func (server *orderServer) listenForRaftCommits(raftCommitChannel <-chan *string
 
 		req := &pb.ReportRequest{}
 		err := proto.Unmarshal([]byte(*requestString), req)
-
 		if err != nil {
 			logger.Printf("Could not unmarshal raft commit message")
 		}

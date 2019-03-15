@@ -2,14 +2,15 @@ package order
 
 import (
 	"fmt"
-	"k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
 	"log"
 	"net"
 	"sort"
 	"time"
+
+	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -21,7 +22,7 @@ import (
 )
 
 func Start() {
-	logger.Printf("Ordering layer server started on %d\n", viper.Get("port"))
+	logger.Printf("Ordering layer server starting on %d\n", viper.Get("port"))
 	lis, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", viper.Get("port")))
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
@@ -44,35 +45,36 @@ func Start() {
 	go server.listenForRaftCommits(raftCommitChannel)
 	go listenForErrors(raftErrorChannel)
 
-	logger.Printf("Order layer server %d available on %d\n", viper.Get("asdf"), viper.Get("port"))
+	logger.Printf("Order layer server available on port %d\n", viper.Get("port"))
 	//Blocking, must be last step
 	grpcServer.Serve(lis)
 }
 
 // combine peer Raft node ID & URL for ease of sorting by ID
-type peerIdUrl struct {
+type peerIDAndURL struct {
 	id  types.UID
 	url string
 }
 
 /**
 Returns own ID (as index into array of IP addresses) and an array of IP addresses of Raft peers, sorted by increasing UID.
+The IP addresses should include the port number.
 */
 func getRaftIndexPeerUrls() (int, []string) {
 	clientset := initKubernetesClient()
 	listOptions := metav1.ListOptions{
-		LabelSelector: "tier=" + viper.GetString("shardGroup"),
+		LabelSelector: "app=scalog-order",
 	}
 	pods := getShardPods(clientset, listOptions)
-	size := pods.Size()
+	size := len(pods.Items)
 
-	peers := make([]peerIdUrl, size, size)
+	peers := make([]peerIDAndURL, size, size)
 
 	for i, pod := range pods.Items {
 		logger.Printf("Peer ip: " + pod.Status.PodIP + ", uid: " + string(pod.UID))
-		peers[i] = peerIdUrl{
+		peers[i] = peerIDAndURL{
 			id:  pod.UID,
-			url: pod.Status.PodIP,
+			url: fmt.Sprintf("http://%s:%s", pod.Status.PodIP, viper.GetString("raftPort")),
 		}
 	}
 
@@ -80,16 +82,16 @@ func getRaftIndexPeerUrls() (int, []string) {
 		return peers[i].id < peers[j].id
 	})
 
-	id := viper.GetString("id")
+	id := viper.GetString("uid")
 	logger.Printf("My uid: " + id)
 
 	index := -1
 	urls := make([]string, size, size)
-	for i, idUrl := range peers {
-		if string(idUrl.id) == id {
+	for i, idURL := range peers {
+		if string(idURL.id) == id {
 			index = i
 		}
-		urls[i] = idUrl.url
+		urls[i] = idURL.url
 	}
 
 	return index, urls
@@ -116,7 +118,8 @@ func getShardPods(clientset *kubernetes.Clientset, listOptions metav1.ListOption
 		if err != nil {
 			panic(err)
 		}
-		if len(pods.Items) == viper.Get("serverCount") && allPodsAreRunning(pods.Items) {
+		fmt.Println(fmt.Sprintf("looking for %d, but have %d", viper.GetInt("raft_cluster_size"), len(pods.Items)))
+		if len(pods.Items) == viper.GetInt("raft_cluster_size") && allPodsAreRunning(pods.Items) {
 			return pods
 		}
 		//wait for pods to start up

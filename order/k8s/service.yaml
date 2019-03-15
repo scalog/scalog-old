@@ -11,3 +11,11 @@ spec:
   ports:
   - protocol: TCP
     port: 21024
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: scalog-order-service-account
+  namespace: scalog
+  labels:
+    app: scalog-order
