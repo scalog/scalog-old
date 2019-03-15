@@ -93,7 +93,8 @@ func getRaftIndexPeerUrls() (int, []string) {
 		}
 		urls[i] = idURL.url
 	}
-
+	// ID's in raft should be one indexed
+	index++
 	return index, urls
 }
 
