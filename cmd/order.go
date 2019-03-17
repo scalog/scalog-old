@@ -19,6 +19,7 @@ import (
 
 	"github.com/scalog/scalog/order"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 // orderCmd represents the order command
@@ -49,4 +50,17 @@ func init() {
 	// Cobra supports local flags which will only run when this command
 	// is called directly, e.g.:
 	// orderCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
+	orderCmd.PersistentFlags().Int("raftNodeID", 1, "ID of raft node in raft cluster")
+	viper.BindPFlag("raftNodeID", orderCmd.PersistentFlags().Lookup("raftNodeID"))
+
+	// Raft must listen on a port different than the one we serve gRPC requests on
+	viper.SetDefault("raftPort", 1337)
+
+	viper.BindEnv("name")
+	viper.BindEnv("namespace")
+	viper.BindEnv("pod_ip")
+	// The number of replicas running in the ordering layer
+	viper.BindEnv("raft_cluster_size")
+	// UID of this pod
+	viper.BindEnv("uid")
 }

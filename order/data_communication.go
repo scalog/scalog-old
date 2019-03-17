@@ -2,10 +2,15 @@ package order
 
 import (
 	"context"
+	"github.com/gogo/protobuf/proto"
+	"github.com/scalog/scalog/logger"
 	pb "github.com/scalog/scalog/order/messaging"
 	"io"
 )
 
+/**
+Receives messages from the data layer. Spawns response function with a pointer to the stream to respond to data layer with newly committed cuts.
+*/
 func (server *orderServer) Report(stream pb.Order_ReportServer) error {
 	spawned := false
 	for {
@@ -22,16 +27,13 @@ func (server *orderServer) Report(stream pb.Order_ReportServer) error {
 			spawned = true
 		}
 
-		cut := make(ShardCut, server.numServersPerShard, server.numServersPerShard)
-		for i := 0; i < len(cut); i++ {
-			cut[i] = int(req.TentativeCut[i])
+		//propose message to raft
+		marshalBytes, err := proto.Marshal(req)
+		if err != nil {
+			logger.Printf("Could not marshal data layer message")
+			return nil
 		}
-		server.mu.Lock()
-		for i := 0; i < len(cut); i++ {
-			curr := server.contestedGlobalCut[int(req.ShardID)][int(req.ReplicaID)][i]
-			server.contestedGlobalCut[int(req.ShardID)][int(req.ReplicaID)][i] = max(curr, cut[i])
-		}
-		server.mu.Unlock()
+		server.raftProposeChannel <- string(marshalBytes)
 	}
 }
 

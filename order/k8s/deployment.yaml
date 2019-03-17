@@ -6,7 +6,7 @@ metadata:
   labels:
     app: scalog-order
 spec:
-  replicas: 1
+  replicas: 2
   selector:
     matchLabels:
       app: scalog-order
@@ -15,14 +15,32 @@ spec:
       labels:
         app: scalog-order
     spec:
+      serviceAccountName: scalog-order-service-account
       containers:
-      - name: scalog-order-singleton
+      - name: scalog-order-node
         image: scalog-order
         imagePullPolicy: Never
         ports:
+        # Port to server gRPC requests
         - containerPort: 21024
+        # Port for Raft nodes to communicate on
+        - containerPort: 1337
         env:
-          - name: GRPC_GO_LOG_VERBOSITY_LEVEL
-            value: "99"
-          - name: GRPC_GO_LOG_SEVERITY_LEVEL
-            value: "info"
+        - name: UID
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.uid
+        - name: RAFT_CLUSTER_SIZE
+          value: "2"
+        - name: NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
