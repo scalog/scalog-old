@@ -100,7 +100,7 @@ func (server *orderServer) mergeContestedCuts() Deltas {
 	for _, shardId := range server.shardIds {
 		// find smallest cut for shard i
 		for i := 0; i < server.numServersPerShard; i++ {
-			minCut := 0
+			minCut := 999999999999
 			for j := 0; j < server.numServersPerShard; j++ {
 				minCut = min(server.contestedGlobalCut[shardId][j][i], minCut)
 			}
@@ -140,7 +140,6 @@ func (server *orderServer) updateCommittedCutGlobalSeqNumAndBroadcastDeltas(delt
 		}
 
 		response.CommittedCuts = intSliceToInt32Slice(server.committedGlobalCut[shardId])
-
 		for i := 0; i < server.numServersPerShard; i++ {
 			server.dataResponseChannels[shardId][i] <- response
 		}
@@ -167,8 +166,9 @@ func (server *orderServer) reportResponseRoutine(stream pb.Order_ReportServer, r
 	shardId := int(req.ShardID)
 	num := req.ReplicaID
 	for response := range server.dataResponseChannels[shardId][num] {
-		logger.Printf(response.String())
-		stream.Send(&response)
+		if err := stream.Send(&response); err != nil {
+			logger.Panicf(err.Error())
+		}
 	}
 }
 

@@ -16,6 +16,7 @@ import (
 type Record struct {
 	cid        int32
 	csn        int32
+	gsn        int32
 	record     string
 	commitResp chan int // Should send back a GSN to be forwarded to client
 }

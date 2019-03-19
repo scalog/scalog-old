@@ -2,10 +2,11 @@ package order
 
 import (
 	"context"
+	"io"
+
 	"github.com/gogo/protobuf/proto"
 	"github.com/scalog/scalog/logger"
 	pb "github.com/scalog/scalog/order/messaging"
-	"io"
 )
 
 /**

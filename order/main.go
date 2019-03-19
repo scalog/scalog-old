@@ -36,9 +36,12 @@ func Start() {
 
 	var server *orderServer
 	id, peers := getRaftIndexPeerUrls()
+	// TODO: remove hard coded server shard count
+	server = newOrderServer(make([]int, 1, 1), 2, nil, nil)
 	raftProposeChannel, raftCommitChannel, raftErrorChannel, raftSnapshotter :=
 		newRaftNode(id, peers, false, server.getSnapshot)
-	server = newOrderServer(make([]int, 1, 1), 2, raftProposeChannel, <-raftSnapshotter)
+	server.raftProposeChannel = raftProposeChannel
+	server.raftSnapshotter = <-raftSnapshotter
 
 	messaging.RegisterOrderServer(grpcServer, server)
 	go server.respondToDataLayer()
@@ -61,6 +64,10 @@ Returns own ID (as index into array of IP addresses) and an array of IP addresse
 The IP addresses should include the port number.
 */
 func getRaftIndexPeerUrls() (int, []string) {
+	if viper.GetBool("localRun") {
+		// FOR TESTING. Single raft node
+		return 1, []string{"http://0.0.0.0:9876"}
+	}
 	clientset := initKubernetesClient()
 	listOptions := metav1.ListOptions{
 		LabelSelector: "app=scalog-order",
@@ -138,7 +145,6 @@ func allPodsAreRunning(pods []v1.Pod) bool {
 }
 
 //TODO end copy pasta
-
 func listenForErrors(errorChannel <-chan error) {
 	for err := range errorChannel {
 		logger.Printf("Raft error: " + err.Error())

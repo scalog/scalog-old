@@ -24,9 +24,6 @@ import (
 	"github.com/spf13/viper"
 )
 
-var serverCount int
-var localRun bool
-
 func parsePodName(podName string) (string, int, int) {
 	splitPodName := strings.Split(podName, "-")
 	shardGroup := strings.Join(splitPodName[:len(splitPodName)-1], "-")
@@ -55,18 +52,14 @@ func init() {
 	// is called directly, e.g.:
 	// dataCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 
-	dataCmd.Flags().BoolVar(&localRun, "localRun", false, "Use if running locally")
-	viper.BindPFlag("localRun", dataCmd.Flags().Lookup("localRun"))
+	viper.SetDefault("name", "no-service-name")
 
-	dataCmd.Flags().IntVar(&serverCount, "serverCount", 2, "Number of servers in a shard (default is 2)")
-	viper.BindPFlag("serverCount", dataCmd.Flags().Lookup("serverCount"))
-
+	// Load environment variables into Viper
 	viper.BindEnv("node_name")
 	viper.BindEnv("name")
 	viper.BindEnv("namespace")
 	viper.BindEnv("pod_ip")
 
-	viper.SetDefault("name", "no-service-name")
 	shardGroup, replicaID, shardID := parsePodName(viper.GetString("name"))
 	viper.SetDefault("shardGroup", shardGroup)
 	viper.SetDefault("shardID", shardID)
