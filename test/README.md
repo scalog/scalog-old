@@ -8,9 +8,4 @@ While unit tests that guarantee the correct behavior of each individual layer wo
 
 ### Running the tests
 
-To run the tests, you should spin up several scalog nodes on your local machine. It's pretty nasty right now, but here's how you do it for now:
-
-1. Run a order layer node with `./scalog order --localRun --port 1337`
-2. Run a data layer node with `export NAME=asdf-0-0 && ./scalog data --localRun --port 8080`
-3. Run another data layer node with `export NAME=asdf-0-1 && ./scalog data --localRun --port 8081`
-4. To run the current test cases, run `go test test/sanity_test.go`
+Change your directory to the test directory. To run a specific test, just use `go test TEST_NAME`. If golang is cacheing the results, just run `go test TEST_NAME -count=1` to force the test rerun.

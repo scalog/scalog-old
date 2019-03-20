@@ -3,7 +3,12 @@ package test
 import (
 	"context"
 	"fmt"
+	"os"
+	"os/exec"
 	"testing"
+	"time"
+
+	"github.com/scalog/scalog/logger"
 
 	"github.com/scalog/scalog/data/messaging"
 	"google.golang.org/grpc"
@@ -32,31 +37,55 @@ func checkError(err error, t *testing.T) {
 // Tests a put operation
 func TestPut(t *testing.T) {
 	// These cancel the scalog instances when this test ends
-	// dataOneContext, cancel1 := context.WithCancel(context.Background())
-	// defer cancel1()
-	// dataTwoContext, cancel2 := context.WithCancel(context.Background())
-	// defer cancel2()
-	// orderContext, cancel3 := context.WithCancel(context.Background())
-	// defer cancel3()
+	dataOneContext, cancel1 := context.WithCancel(context.Background())
+	defer cancel1()
+	dataTwoContext, cancelTwo := context.WithCancel(context.Background())
+	defer cancelTwo()
+	orderContext, orderCancel := context.WithCancel(context.Background())
+	defer orderCancel()
 
-	// if err := exec.CommandContext(dataOneContext, "../../scalog", "data", "--localRun", "--port", "8081").Run(); err != nil {
-	// 	t.Errorf(err.Error())
-	// }
-	// if err := exec.CommandContext(dataTwoContext, "../../scalog", "data", "--localRun", "--port", "8080").Run(); err != nil {
-	// 	t.Errorf(err.Error())
-	// }
-	// if err := exec.CommandContext(orderContext, "../../scalog", "order", "--localRun", "--port", "1337").Run(); err != nil {
-	// 	t.Errorf(err.Error())
-	// }
+	cmd := exec.CommandContext(orderContext, "../scalog", "order", "--localRun", "--port", "1337")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Start(); err != nil {
+		t.Errorf(err.Error())
+	}
 
-	// // Wait for services to start
-	// time.Sleep(100 * time.Millisecond)
+	time.Sleep(1000 * time.Millisecond)
+
+	// Data layer reads from name var to determine identity
+	cmd = exec.CommandContext(dataTwoContext, "../scalog", "data", "--localRun", "--port", "8080")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Env = append(os.Environ(),
+		"NAME=asdf-0-0",
+	)
+	if err := cmd.Start(); err != nil {
+		t.Errorf(err.Error())
+	}
+
+	// Data layer reads from name var to determine identity
+	cmd = exec.CommandContext(dataOneContext, "../scalog", "data", "--localRun", "--port", "8081")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Env = append(os.Environ(),
+		"NAME=asdf-0-1",
+	)
+	if err := cmd.Start(); err != nil {
+		t.Errorf(err.Error())
+	}
+
+	logger.Printf("Waiting for services to start")
+	// Wait for services to start
+	time.Sleep(1000 * time.Millisecond)
 
 	// Create two clients for communicating with the scalog data servers
 	replicaOne := getDataClient("0.0.0.0:8081")
 	replicaTwo := getDataClient("0.0.0.0:8080")
-
 	appendRequest := messaging.AppendRequest{Cid: 1, Csn: 1, Record: "Hello World"}
+
+	time.Sleep(1000 * time.Millisecond)
+
 	resp, err := replicaOne.Append(context.Background(), &appendRequest)
 	checkError(err, t)
 
@@ -86,7 +115,12 @@ TestPutStress makes many requests to a single shard from a single client. All of
 be eventually served.
 */
 func TestSinglePutStress(t *testing.T) {
+	orderContext, cancel3 := context.WithCancel(context.Background())
+	defer cancel3()
 
+	if err := exec.CommandContext(orderContext, "../scalog", "order", "--localRun", "--port", "1337").Start(); err != nil {
+		t.Errorf(err.Error())
+	}
 }
 
 /*
