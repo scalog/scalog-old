@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package rpc;
+
+/*
+gRPC for Discovery of Scalog
+
+Queries should return a list of IP addresses pointing at the stable external IP's 
+available for each pod in the data layer of Scalog. 
+*/
+service Discovery {
+	rpc DiscoverServers (DiscoverRequest) returns (DiscoverResponse) {}
+}
+
+message DiscoverRequest {}
+
+message DiscoverResponse {
+	repeated int32 serverAddresses = 1;
+}
