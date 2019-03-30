@@ -206,6 +206,7 @@ func (server *dataServer) receiveFinalizedCuts(stream om.Order_ReportClient) {
 
 			for i := 0; i < numLogs; i++ {
 				server.serverBuffers[idx][offset+i].gsn = int32(gsn)
+				server.stableStorage.WriteLog(gsn, server.serverBuffers[idx][offset+i].record)
 				// If you were the one who received this client req, you should respond to it
 				if idx == viper.GetInt("id") {
 					server.serverBuffers[idx][offset+i].commitResp <- gsn

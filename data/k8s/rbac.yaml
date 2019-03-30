@@ -21,6 +21,6 @@ roleRef:
   kind: ClusterRole
   name: scalog-data-layer-rbac
 subjects:
-  - name: scalog-data-service-account
+  - name: scalog-service-account
     namespace: "scalog"
     kind: ServiceAccount
