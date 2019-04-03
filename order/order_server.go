@@ -153,6 +153,33 @@ func (server *orderServer) updateCommittedCutGlobalSeqNumAndBroadcastDeltas(delt
 	}
 }
 
+/*
+notifyShardAndDeleteShardMetadata sends a finalization message to each replica
+within [shardID], and removes the remaining shardID metadata from the ordering layer.
+
+This operation acquires a writer lock
+*/
+func (server *orderServer) notifyShardAndDeleteShardMetadata(shardID int) {
+	terminationMessage := pb.ReportResponse{Finalized: true}
+
+	server.shardMu.Lock()
+	for i := 0; i < server.numServersPerShard; i++ {
+		// Notify the relavant data replicas that they have been finalized
+		server.dataResponseChannels[shardID][i] <- terminationMessage
+		// Cleanup channels used for data layer communication
+		close(server.dataResponseChannels[shardID][i])
+	}
+	// Remove shardID from dataResponseChannels
+	delete(server.dataResponseChannels, shardID)
+	// Remove shardID from commitedGlobalCut
+	delete(server.committedGlobalCut, shardID)
+	// Remove shardID from contestedGlobalCut
+	delete(server.contestedGlobalCut, shardID)
+	// Remove shardID binding in order layer state
+	server.shardIds = removeShardIDFromSlice(shardID, server.shardIds)
+	server.shardMu.Unlock()
+}
+
 ////////////////////// DATA LAYER GRPC FUNCTIONS
 
 /**
@@ -229,20 +256,30 @@ func (server *orderServer) listenForRaftCommits(raftCommitChannel <-chan *string
 		}
 
 		req := &pb.ReportRequest{}
-		err := proto.Unmarshal([]byte(*requestString), req)
-		if err != nil {
-			logger.Printf("Could not unmarshal raft commit message")
+		if err := proto.Unmarshal([]byte(*requestString), req); err != nil {
+			logger.Panicf("Could not unmarshal raft commit message")
 		}
 
-		//save into contested cuts
+		// ReportRequests can take two actions -- one is where we decide upon a shard cut.
+		// The other action is if we decide on finalizing a particular shard.
+		if req.Finalized {
+			finalizedShardID := int(req.ShardID)
+			server.notifyShardAndDeleteShardMetadata(finalizedShardID)
+			continue
+		}
+
+		// Save into contested cuts
 		cut := make(ShardCut, server.numServersPerShard, server.numServersPerShard)
 		for i := 0; i < len(cut); i++ {
 			cut[i] = int(req.TentativeCut[i])
 		}
+
+		server.shardMu.Lock()
 		for i := 0; i < len(cut); i++ {
 			curr := server.contestedGlobalCut[int(req.ShardID)][int(req.ReplicaID)][i]
 			server.contestedGlobalCut[int(req.ShardID)][int(req.ReplicaID)][i] = max(curr, cut[i])
 		}
+		server.shardMu.Unlock()
 	}
 }
 

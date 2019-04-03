@@ -43,22 +43,15 @@ func (server *orderServer) Register(ctx context.Context, req *pb.RegisterRequest
 }
 
 func (server *orderServer) Finalize(ctx context.Context, req *pb.FinalizeRequest) (*pb.FinalizeResponse, error) {
-	shardID := int(req.ShardID)
-	terminationMessage := pb.ReportResponse{Finalized: true}
-
-	server.shardMu.Lock()
-	for i := 0; i < server.numServersPerShard; i++ {
-		// Notify the relavant data replicas that they have been finalized
-		server.dataResponseChannels[shardID][i] <- terminationMessage
-		// Cleanup channels used for data layer communication
-		close(server.dataResponseChannels[shardID][i])
+	for _, shardID := range req.ShardIDs {
+		proposedShardFinalization := pb.ReportRequest{ShardID: shardID, Finalized: true}
+		raftReq, err := proto.Marshal(&proposedShardFinalization)
+		if err != nil {
+			logger.Printf("Could not marshal finalization request message")
+			return nil, err
+		}
+		server.raftProposeChannel <- string(raftReq)
 	}
-	// Remove shardID from dataResponseChannels
-	delete(server.dataResponseChannels, shardID)
-	// Remove shardID binding in order layer state
-	server.shardIds = removeShardIDFromSlice(shardID, server.shardIds)
-	server.shardMu.Unlock()
-
 	resp := &pb.FinalizeResponse{}
 	return resp, nil
 }

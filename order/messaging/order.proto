@@ -17,6 +17,8 @@ message ReportRequest {
     int32 shardID = 1;
     int32 replicaID = 2;
     repeated int32 tentativeCut = 3;
+    // True only if the ordering layer wishes to propose a finalization of this particular shard
+    bool finalized = 4;
 }
 
 message ReportResponse {
@@ -38,7 +40,8 @@ message RegisterRequest {
 message RegisterResponse {}
 
 message FinalizeRequest {
-    int32 shardID = 1;
+    // Array of shards to finalize
+    repeated int32 shardIDs = 1;
 }
 
 message FinalizeResponse {}
