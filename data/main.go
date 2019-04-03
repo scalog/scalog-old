@@ -20,6 +20,7 @@ import (
 	om "github.com/scalog/scalog/order/messaging"
 	"github.com/spf13/viper"
 	"google.golang.org/grpc"
+	"k8s.io/client-go/util/retry"
 )
 
 // Start serving requests for the data layer
@@ -42,15 +43,20 @@ Note: This is a blocking operation -- waits until all servers in a shard are up 
 communication channels with them. Only then will this server become ready to take requests.
 */
 func newDataServer() *dataServer {
+	replicaID := viper.GetInt("id")
+	replicaCount := viper.GetInt("serverCount")
+	// TODO: Refactor this out
+	shardName := viper.GetString("shardGroup")
+	shardID := viper.GetInt32("shardID")
+
 	var shardPods []chan messaging.ReplicateRequest
+	var clientset *kubernetes.Clientset
 
 	// Run this only if running within a kubernetes cluster
 	if !viper.GetBool("localRun") {
-		logger.Printf("Server %d searching for other %d servers in %s\n", viper.Get("id"), viper.Get("serverCount"), viper.GetString("shardGroup"))
-		clientset := initKubernetesClient()
-		listOptions := metav1.ListOptions{
-			LabelSelector: "tier=" + viper.GetString("shardGroup"),
-		}
+		logger.Printf("Server %d searching for other %d servers in %s\n", replicaID, replicaCount, shardName)
+		clientset = initKubernetesClient()
+		listOptions := metav1.ListOptions{LabelSelector: "tier=" + shardName}
 		pods := getShardPods(clientset, listOptions)
 		for _, pod := range pods.Items {
 			if pod.Status.PodIP == viper.Get("pod_ip") {
@@ -61,7 +67,7 @@ func newDataServer() *dataServer {
 		}
 	} else {
 		// TODO: Make more extensible for testing -- right now we assume only two replicas in our local cluster
-		logger.Printf("Server %d searching for other %d servers on your local machine\n", viper.Get("id"), viper.Get("serverCount"))
+		logger.Printf("Server %d searching for other %d servers on your local machine\n", replicaID, replicaCount)
 		shardPods = append(shardPods, make(chan messaging.ReplicateRequest))
 		if viper.GetString("port") == "8080" {
 			go createIntershardPodConnection("0.0.0.0:8081", shardPods[len(shardPods)-1])
@@ -72,10 +78,15 @@ func newDataServer() *dataServer {
 
 	fs := filesystem.New("scalog-db")
 	s := &dataServer{
+		replicaID:     replicaID,
+		replicaCount:  replicaCount,
+		shardID:       shardID,
+		isFinalized:   false,
 		stableStorage: &fs,
-		serverBuffers: make([][]Record, viper.GetInt("serverCount")),
+		serverBuffers: make([][]Record, replicaCount),
 		mu:            sync.Mutex{},
 		shardServers:  shardPods,
+		kubeClient:    clientset,
 	}
 	s.setupOrderLayerComunication()
 	return s
@@ -127,36 +138,18 @@ func createIntershardPodConnection(podIP string, ch chan messaging.ReplicateRequ
 }
 
 /*
-	Helper method for testing equalty of slices
-*/
-func sliceEq(a, b []int32) bool {
-	if (a == nil) != (b == nil) {
-		return false
-	}
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
-}
-
-/*
 	Periodically sends a vector composed of the length of this server's buffers to
 	the ordering layer.
 */
-func (server *dataServer) sendTentativeCutsToOrder(stream om.Order_ReportClient) {
+func (server *dataServer) sendTentativeCutsToOrder(stream om.Order_ReportClient, ticker *time.Ticker) {
 	// Keeps track of previous ordering layer reports
-	sent := make([]int32, viper.GetInt("serverCount"))
+	sent := make([]int32, server.replicaCount)
 	for i := range sent {
 		sent[i] = 0
 	}
-	ticker := time.NewTicker(20 * time.Millisecond) // todo remove hard-coded interval
+	// ticker := time.NewTicker(20 * time.Millisecond) // todo remove hard-coded interval
 	for range ticker.C {
-		cut := make([]int32, viper.GetInt("serverCount"))
+		cut := make([]int32, server.replicaCount)
 		for idx, buf := range server.serverBuffers {
 			cut[idx] = int32(len(buf))
 		}
@@ -167,7 +160,7 @@ func (server *dataServer) sendTentativeCutsToOrder(stream om.Order_ReportClient)
 		}
 		reportReq := &om.ReportRequest{
 			ShardID:      viper.GetInt32("shardID"),
-			ReplicaID:    viper.GetInt32("id"),
+			ReplicaID:    int32(server.replicaID),
 			TentativeCut: cut,
 		}
 		sent = cut
@@ -175,11 +168,33 @@ func (server *dataServer) sendTentativeCutsToOrder(stream om.Order_ReportClient)
 	}
 }
 
+func (server *dataServer) labelPodAsFinalized() {
+	podClient := server.kubeClient.CoreV1().Pods("scalog")
+	retryErr := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		// Retrieve the latest version of Deployment before attempting update
+		// RetryOnConflict uses exponential backoff to avoid exhausting the apiserver
+		pod, getErr := podClient.Get(viper.GetString("name"), metav1.GetOptions{})
+		if getErr != nil {
+			panic(fmt.Errorf("Failed to get kube pod: %v", getErr))
+		}
+
+		currentLabels := pod.GetLabels()
+		currentLabels["status"] = "finalized"
+		pod.SetLabels(currentLabels)
+
+		_, updateErr := podClient.Update(pod)
+		return updateErr
+	})
+	if retryErr != nil {
+		panic(fmt.Errorf("Pod label update failed: %v", retryErr))
+	}
+}
+
 /*
 	Listens on the given stream for finalized cuts from the ordering layer. Finalized cuts
 	are read into the server buffers where we record GSN's and respond to clients.
 */
-func (server *dataServer) receiveFinalizedCuts(stream om.Order_ReportClient) {
+func (server *dataServer) receiveFinalizedCuts(stream om.Order_ReportClient, sendTicker *time.Ticker) {
 	for {
 		in, err := stream.Recv()
 		if err == io.EOF {
@@ -188,7 +203,6 @@ func (server *dataServer) receiveFinalizedCuts(stream om.Order_ReportClient) {
 		if err != nil {
 			logger.Panicf(err.Error())
 		}
-
 		if len(in.CommittedCuts) != len(server.serverBuffers) {
 			logger.Panicf(
 				fmt.Sprintf(
@@ -197,6 +211,20 @@ func (server *dataServer) receiveFinalizedCuts(stream om.Order_ReportClient) {
 					len(server.serverBuffers),
 				),
 			)
+		}
+
+		// We should no longer receive or send requests to the ordering layer.
+		// We should also label ourselves as finalized so that the discovery layer
+		// does not advertise this pod again. No writes should be sent out.
+		if in.Finalized {
+			// Stop serving further Append requests
+			server.isFinalized = true
+			// Stop sending tentative cuts to the ordering layer
+			sendTicker.Stop()
+			// Prevent discovery layer from finding this pod ever again
+			server.labelPodAsFinalized()
+			// Upon returning, stop receiving cuts from the ordering layer
+			return
 		}
 
 		gsn := int(in.StartGlobalSequenceNum)
@@ -208,7 +236,7 @@ func (server *dataServer) receiveFinalizedCuts(stream om.Order_ReportClient) {
 				server.serverBuffers[idx][offset+i].gsn = int32(gsn)
 				server.stableStorage.WriteLog(gsn, server.serverBuffers[idx][offset+i].record)
 				// If you were the one who received this client req, you should respond to it
-				if idx == viper.GetInt("id") {
+				if idx == server.replicaID {
 					server.serverBuffers[idx][offset+i].commitResp <- gsn
 				}
 				gsn++
@@ -239,8 +267,10 @@ func (server *dataServer) setupOrderLayerComunication() {
 		panic(err)
 	}
 
-	go server.sendTentativeCutsToOrder(stream)
-	go server.receiveFinalizedCuts(stream)
+	// We need to stop both of these bois when finalized
+	sendTicker := time.NewTicker(20 * time.Millisecond) // TODO: Allow interval to be configurable
+	go server.sendTentativeCutsToOrder(stream, sendTicker)
+	go server.receiveFinalizedCuts(stream, sendTicker)
 }
 
 //////////////////	Utility Functions
@@ -281,4 +311,22 @@ func getShardPods(clientset *kubernetes.Clientset, listOptions metav1.ListOption
 		}
 	}
 	return pods
+}
+
+/*
+	Helper method for testing equalty of slices
+*/
+func sliceEq(a, b []int32) bool {
+	if (a == nil) != (b == nil) {
+		return false
+	}
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }

@@ -2,6 +2,8 @@ package order
 
 import (
 	"encoding/json"
+	"fmt"
+	"math"
 	"sync"
 	"time"
 
@@ -32,7 +34,8 @@ type orderServer struct {
 	globalSequenceNum    int
 	shardIds             []int
 	numServersPerShard   int
-	mu                   sync.Mutex
+	mu                   sync.Mutex // Mutex for raft
+	shardMu              sync.Mutex // Mutex for active shardID structures
 	dataResponseChannels ResponseChannels
 	raftProposeChannel   chan<- string
 	raftSnapshotter      *snap.Snapshotter
@@ -53,6 +56,7 @@ func newOrderServer(shardIds []int, numServersPerShard int, raftProposeChannel c
 		shardIds:             shardIds,
 		numServersPerShard:   numServersPerShard,
 		mu:                   sync.Mutex{},
+		shardMu:              sync.Mutex{},
 		dataResponseChannels: initResponseChannels(shardIds, numServersPerShard),
 		raftProposeChannel:   raftProposeChannel,
 		raftSnapshotter:      raftSnapshotter,
@@ -61,76 +65,79 @@ func newOrderServer(shardIds []int, numServersPerShard int, raftProposeChannel c
 
 func initCommittedCut(shardIds []int, numServersPerShard int) CommittedGlobalCut {
 	cut := make(CommittedGlobalCut, len(shardIds))
-	for _, shardId := range shardIds {
-		cut[shardId] = make(ShardCut, numServersPerShard, numServersPerShard)
+	for _, shardID := range shardIds {
+		cut[shardID] = make(ShardCut, numServersPerShard, numServersPerShard)
 	}
 	return cut
 }
 
 func initContestedCut(shardIds []int, numServersPerShard int) ContestedGlobalCut {
 	cut := make(ContestedGlobalCut, len(shardIds))
-	for _, shardId := range shardIds {
+	for _, shardID := range shardIds {
 		shardCuts := make([]ShardCut, numServersPerShard, numServersPerShard)
 		for i := 0; i < numServersPerShard; i++ {
 			shardCuts[i] = make(ShardCut, numServersPerShard, numServersPerShard)
 		}
-		cut[shardId] = shardCuts
+		cut[shardID] = shardCuts
 	}
 	return cut
 }
 
 func initResponseChannels(shardIds []int, numServersPerShard int) ResponseChannels {
 	channels := make(ResponseChannels, len(shardIds))
-	for _, shardId := range shardIds {
+	for _, shardID := range shardIds {
 		channelsForShard := make([]chan pb.ReportResponse, numServersPerShard, numServersPerShard)
 		for i := 0; i < numServersPerShard; i++ {
 			channelsForShard[i] = make(chan pb.ReportResponse)
 		}
-		channels[shardId] = channelsForShard
+		channels[shardID] = channelsForShard
 	}
 	return channels
 }
 
 /**
 Find min cut for each shard and compute changes from last committed cuts.
+
+CAUTION: THIS IS UNDER MUTEX PROTECTION. BE CAREFUL WHEN MODIFYING
 */
 func (server *orderServer) mergeContestedCuts() Deltas {
 	deltas := initCommittedCut(server.shardIds, server.numServersPerShard)
-
-	for _, shardId := range server.shardIds {
+	for _, shardID := range server.shardIds {
 		// find smallest cut for shard i
 		for i := 0; i < server.numServersPerShard; i++ {
-			minCut := 999999999999
+			minCut := math.MaxInt64
 			for j := 0; j < server.numServersPerShard; j++ {
-				minCut = min(server.contestedGlobalCut[shardId][j][i], minCut)
+				minCut = min(server.contestedGlobalCut[shardID][j][i], minCut)
 			}
 
-			prevCut := server.committedGlobalCut[shardId][i]
-			deltas[shardId][i] = minCut - prevCut
+			prevCut := server.committedGlobalCut[shardID][i]
+			deltas[shardID][i] = minCut - prevCut
 		}
 	}
-
 	return Deltas(deltas)
 }
 
 /**
 Compute global sequence number for each server and send update message.
 NOTE: Must be called after updateCommittedCuts().
+
+CAUTION: THIS IS UNDER MUTEX PROTECTION. BE CAREFUL WHEN MODIFYING
 */
 func (server *orderServer) updateCommittedCutGlobalSeqNumAndBroadcastDeltas(deltas Deltas) {
-	for _, shardId := range server.shardIds {
+	for _, shardID := range server.shardIds {
 		startSequenceNum := server.globalSequenceNum
 
 		response := pb.ReportResponse{
 			StartGlobalSequenceNum: int32(server.globalSequenceNum),
-			Offsets:                intSliceToInt32Slice(server.committedGlobalCut[shardId]),
+			Offsets:                intSliceToInt32Slice(server.committedGlobalCut[shardID]),
+			Finalized:              false,
 		}
 
 		for i := 0; i < server.numServersPerShard; i++ {
-			delta := deltas[shardId][i]
+			delta := deltas[shardID][i]
 
 			// calculate new committed cuts
-			server.committedGlobalCut[shardId][i] += delta
+			server.committedGlobalCut[shardID][i] += delta
 			server.globalSequenceNum += delta
 		}
 
@@ -139,9 +146,9 @@ func (server *orderServer) updateCommittedCutGlobalSeqNumAndBroadcastDeltas(delt
 			continue
 		}
 
-		response.CommittedCuts = intSliceToInt32Slice(server.committedGlobalCut[shardId])
+		response.CommittedCuts = intSliceToInt32Slice(server.committedGlobalCut[shardID])
 		for i := 0; i < server.numServersPerShard; i++ {
-			server.dataResponseChannels[shardId][i] <- response
+			server.dataResponseChannels[shardID][i] <- response
 		}
 	}
 }
@@ -154,8 +161,10 @@ Periodically merge contested cuts and broadcast to data layer. Sends responses i
 func (server *orderServer) respondToDataLayer() {
 	ticker := time.NewTicker(100 * time.Microsecond) // todo remove hard-coded interval
 	for range ticker.C {
+		server.shardMu.Lock()
 		deltas := server.mergeContestedCuts()
 		server.updateCommittedCutGlobalSeqNumAndBroadcastDeltas(deltas)
+		server.shardMu.Unlock()
 	}
 }
 
@@ -163,13 +172,14 @@ func (server *orderServer) respondToDataLayer() {
 Reports final cuts to the data layer periodically. Reads from ResponseChannels and feeds into the stream.
 */
 func (server *orderServer) reportResponseRoutine(stream pb.Order_ReportServer, req *pb.ReportRequest) {
-	shardId := int(req.ShardID)
+	shardID := int(req.ShardID)
 	num := req.ReplicaID
-	for response := range server.dataResponseChannels[shardId][num] {
+	for response := range server.dataResponseChannels[shardID][num] {
 		if err := stream.Send(&response); err != nil {
 			logger.Panicf(err.Error())
 		}
 	}
+	logger.Printf(fmt.Sprintf("Ordering finalizing data replica %d in shard %d", num, shardID))
 }
 
 ////////////////////// RAFT FUNCTIONS

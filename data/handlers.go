@@ -2,10 +2,11 @@ package data
 
 import (
 	"context"
+	"errors"
 	"io"
 	"sync"
 
-	"github.com/spf13/viper"
+	"k8s.io/client-go/kubernetes"
 
 	"github.com/scalog/scalog/data/filesystem"
 	"github.com/scalog/scalog/data/messaging"
@@ -22,6 +23,14 @@ type Record struct {
 }
 
 type dataServer struct {
+	// ID of this data server within a shard
+	replicaID int
+	// Number of servers within a data shard
+	replicaCount int
+	// Shard ID
+	shardID int32
+	// True if this replica has been finalized
+	isFinalized bool
 	// Stable storage for entries into this shard
 	stableStorage *filesystem.RecordStorage
 	// Main storage stacks for incoming records
@@ -31,31 +40,37 @@ type dataServer struct {
 	mu sync.Mutex
 	// Live connections to other servers inside the shard -- used for replication
 	shardServers []chan messaging.ReplicateRequest
+	// Client for API calls with kubernetes
+	kubeClient *kubernetes.Clientset
 }
 
-func (s *dataServer) Append(c context.Context, req *pb.AppendRequest) (*pb.AppendResponse, error) {
-	s.mu.Lock()
+func (server *dataServer) Append(c context.Context, req *pb.AppendRequest) (*pb.AppendResponse, error) {
+	if server.isFinalized {
+		return nil, errors.New("this shard has been finalized. No further appends will be permitted")
+	}
+
+	server.mu.Lock()
 	r := &Record{
 		cid:        req.Cid,
 		csn:        req.Csn,
 		record:     req.Record,
 		commitResp: make(chan int),
 	}
-	s.serverBuffers[viper.GetInt("id")] = append(s.serverBuffers[viper.GetInt("id")], *r)
-	s.mu.Unlock()
+	server.serverBuffers[server.replicaID] = append(server.serverBuffers[server.replicaID], *r)
+	server.mu.Unlock()
 
 	replicateRequest := &messaging.ReplicateRequest{
-		ServerID: viper.GetInt32("id"),
+		ServerID: int32(server.replicaID),
 		Record:   req.Record,
 	}
-	for _, ch := range s.shardServers {
+	for _, ch := range server.shardServers {
 		ch <- *replicateRequest
 	}
 	gsn := int32(<-r.commitResp)
 	return &pb.AppendResponse{Csn: r.csn, Gsn: gsn}, nil
 }
 
-func (s *dataServer) Replicate(stream pb.Data_ReplicateServer) error {
+func (server *dataServer) Replicate(stream pb.Data_ReplicateServer) error {
 	for {
 		in, err := stream.Recv()
 		if err == io.EOF {
@@ -64,18 +79,18 @@ func (s *dataServer) Replicate(stream pb.Data_ReplicateServer) error {
 		if err != nil {
 			return err
 		}
-		s.mu.Lock()
-		s.serverBuffers[in.ServerID] = append(s.serverBuffers[in.ServerID], Record{record: in.Record})
-		s.mu.Unlock()
+		server.mu.Lock()
+		server.serverBuffers[in.ServerID] = append(server.serverBuffers[in.ServerID], Record{record: in.Record})
+		server.mu.Unlock()
 	}
 }
 
-func (s *dataServer) Subscribe(*pb.SubscribeRequest, pb.Data_SubscribeServer) error {
+func (server *dataServer) Subscribe(*pb.SubscribeRequest, pb.Data_SubscribeServer) error {
 	// TODO: Implement
 	return nil
 }
 
-func (s *dataServer) Trim(context.Context, *pb.TrimRequest) (*pb.TrimResponse, error) {
+func (server *dataServer) Trim(context.Context, *pb.TrimRequest) (*pb.TrimResponse, error) {
 	// TODO: Implement
 	return nil, nil
 }
