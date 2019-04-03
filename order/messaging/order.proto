@@ -42,6 +42,8 @@ message RegisterResponse {}
 message FinalizeRequest {
     // Array of shards to finalize
     repeated int32 shardIDs = 1;
+    // Finalize these shards after [finalizeAfterCuts] more cuts
+    int32 finalizeAfterCuts = 2;
 }
 
 message FinalizeResponse {}
