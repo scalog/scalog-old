@@ -34,8 +34,8 @@ type orderServer struct {
 	globalSequenceNum    int
 	shardIds             []int
 	numServersPerShard   int
-	mu                   sync.Mutex // Mutex for raft
-	shardMu              sync.Mutex // Mutex for active shardID structures
+	mu                   sync.Mutex   // Mutex for raft
+	shardMu              sync.RWMutex // Mutex for active shardID structures
 	dataResponseChannels ResponseChannels
 	raftProposeChannel   chan<- string
 	raftSnapshotter      *snap.Snapshotter
@@ -56,7 +56,7 @@ func newOrderServer(shardIds []int, numServersPerShard int, raftProposeChannel c
 		shardIds:             shardIds,
 		numServersPerShard:   numServersPerShard,
 		mu:                   sync.Mutex{},
-		shardMu:              sync.Mutex{},
+		shardMu:              sync.RWMutex{},
 		dataResponseChannels: initResponseChannels(shardIds, numServersPerShard),
 		raftProposeChannel:   raftProposeChannel,
 		raftSnapshotter:      raftSnapshotter,
@@ -161,10 +161,10 @@ Periodically merge contested cuts and broadcast to data layer. Sends responses i
 func (server *orderServer) respondToDataLayer() {
 	ticker := time.NewTicker(100 * time.Microsecond) // todo remove hard-coded interval
 	for range ticker.C {
-		server.shardMu.Lock()
+		server.shardMu.RLock()
 		deltas := server.mergeContestedCuts()
 		server.updateCommittedCutGlobalSeqNumAndBroadcastDeltas(deltas)
-		server.shardMu.Unlock()
+		server.shardMu.RUnlock()
 	}
 }
 
@@ -188,6 +188,8 @@ func (server *orderServer) reportResponseRoutine(stream pb.Order_ReportServer, r
 Extracts all variables necessary in state replication in orderServer.
 */
 func (server *orderServer) getState() orderServerState {
+	server.shardMu.RLock()
+	defer server.shardMu.RUnlock()
 	return orderServerState{
 		server.committedGlobalCut,
 		server.contestedGlobalCut,
@@ -200,6 +202,8 @@ Overwrites current server data with state data.
 NOTE: assumes that shardIds and numServersPerShard do not change. If they change, then we must recreate channels.
 */
 func (server *orderServer) loadState(state *orderServerState) {
+	server.shardMu.Lock()
+	defer server.shardMu.Unlock()
 	server.committedGlobalCut = state.committedGlobalCut
 	server.contestedGlobalCut = state.contestedGlobalCut
 	server.globalSequenceNum = state.globalSequenceNum
