@@ -55,14 +55,3 @@ func (server *orderServer) Finalize(ctx context.Context, req *pb.FinalizeRequest
 	resp := &pb.FinalizeResponse{}
 	return resp, nil
 }
-
-func removeShardIDFromSlice(shardID int, shardIDs []int) []int {
-	for idx, id := range shardIDs {
-		if id == shardID {
-			// Slice out this element
-			return append(shardIDs[:idx], shardIDs[idx+1:]...)
-		}
-	}
-	// Element not found
-	return shardIDs
-}

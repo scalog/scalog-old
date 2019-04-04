@@ -33,7 +33,7 @@ type orderServer struct {
 	committedGlobalCut   CommittedGlobalCut
 	contestedGlobalCut   ContestedGlobalCut
 	globalSequenceNum    int
-	shardIds             []int
+	shardIds             *golib.Set
 	numServersPerShard   int
 	mu                   sync.RWMutex
 	dataResponseChannels ResponseChannels
@@ -46,9 +46,10 @@ type orderServerState struct {
 	committedGlobalCut CommittedGlobalCut
 	contestedGlobalCut ContestedGlobalCut
 	globalSequenceNum  int
+	shardIds           *golib.Set
 }
 
-func newOrderServer(shardIds []int, numServersPerShard int, raftProposeChannel chan<- string, raftSnapshotter *snap.Snapshotter) *orderServer {
+func newOrderServer(shardIds *golib.Set, numServersPerShard int, raftProposeChannel chan<- string, raftSnapshotter *snap.Snapshotter) *orderServer {
 	return &orderServer{
 		committedGlobalCut:   initCommittedCut(shardIds, numServersPerShard),
 		contestedGlobalCut:   initContestedCut(shardIds, numServersPerShard),
@@ -62,17 +63,17 @@ func newOrderServer(shardIds []int, numServersPerShard int, raftProposeChannel c
 	}
 }
 
-func initCommittedCut(shardIds []int, numServersPerShard int) CommittedGlobalCut {
-	cut := make(CommittedGlobalCut, len(shardIds))
-	for _, shardID := range shardIds {
+func initCommittedCut(shardIds *golib.Set, numServersPerShard int) CommittedGlobalCut {
+	cut := make(CommittedGlobalCut, shardIds.Size())
+	for shardID := range shardIds.Iterable() {
 		cut[shardID] = make(ShardCut, numServersPerShard, numServersPerShard)
 	}
 	return cut
 }
 
-func initContestedCut(shardIds []int, numServersPerShard int) ContestedGlobalCut {
-	cut := make(ContestedGlobalCut, len(shardIds))
-	for _, shardID := range shardIds {
+func initContestedCut(shardIds *golib.Set, numServersPerShard int) ContestedGlobalCut {
+	cut := make(ContestedGlobalCut, shardIds.Size())
+	for shardID := range shardIds.Iterable() {
 		shardCuts := make([]ShardCut, numServersPerShard, numServersPerShard)
 		for i := 0; i < numServersPerShard; i++ {
 			shardCuts[i] = make(ShardCut, numServersPerShard, numServersPerShard)
@@ -82,9 +83,9 @@ func initContestedCut(shardIds []int, numServersPerShard int) ContestedGlobalCut
 	return cut
 }
 
-func initResponseChannels(shardIds []int, numServersPerShard int) ResponseChannels {
-	channels := make(ResponseChannels, len(shardIds))
-	for _, shardID := range shardIds {
+func initResponseChannels(shardIds *golib.Set, numServersPerShard int) ResponseChannels {
+	channels := make(ResponseChannels, shardIds.Size())
+	for shardID := range shardIds.Iterable() {
 		channelsForShard := make([]chan pb.ReportResponse, numServersPerShard, numServersPerShard)
 		for i := 0; i < numServersPerShard; i++ {
 			channelsForShard[i] = make(chan pb.ReportResponse)
@@ -101,7 +102,7 @@ CAUTION: THE CALLER MUST OBTAIN THE LOCK
 */
 func (server *orderServer) mergeContestedCuts() Deltas {
 	deltas := initCommittedCut(server.shardIds, server.numServersPerShard)
-	for _, shardID := range server.shardIds {
+	for shardID := range server.shardIds.Iterable() {
 		// find smallest cut for shard i
 		for i := 0; i < server.numServersPerShard; i++ {
 			minCut := math.MaxInt64
@@ -123,7 +124,7 @@ NOTE: Must be called after updateCommittedCuts().
 CAUTION: THE CALLER MUST OBTAIN THE LOCK
 */
 func (server *orderServer) updateCommittedCutGlobalSeqNumAndBroadcastDeltas(deltas Deltas) {
-	for _, shardID := range server.shardIds {
+	for shardID := range server.shardIds.Iterable() {
 		startSequenceNum := server.globalSequenceNum
 
 		response := pb.ReportResponse{
@@ -163,36 +164,63 @@ func (server *orderServer) notifyFinalizedShard(shardID int) {
 	server.mu.Lock()
 	defer server.mu.Unlock()
 	for i := 0; i < server.numServersPerShard; i++ {
-		// Notify the relavant data replicas that they have been finalized
+		// Notify the relevant data replicas that they have been finalized
 		server.dataResponseChannels[shardID][i] <- terminationMessage
 	}
 }
 
-func (server *orderServer) addShard(shardID int) {
+/**
+Adds a shard with the shardID to the ordering layer. Does nothing if the shardID already exists.
 
+This operation acquires a writer lock.
+*/
+func (server *orderServer) addShard(shardID int) {
+	//Use read lock to determine if adding is necessary
+	server.mu.RLock()
+	exists := server.shardIds.Contains(shardID)
+	server.mu.RUnlock()
+	if exists {
+		return //Do not attempt to add a shard that was already added
+	}
+
+	server.mu.Lock()
+	defer server.mu.Unlock()
+
+	server.shardIds.Add(shardID)
+	server.committedGlobalCut[shardID] = make(ShardCut, server.numServersPerShard, server.numServersPerShard)
+	server.contestedGlobalCut[shardID] = make([]ShardCut, server.numServersPerShard, server.numServersPerShard)
+	server.dataResponseChannels[shardID] = make([]chan pb.ReportResponse, server.numServersPerShard, server.numServersPerShard)
+
+	for i := 0; i < server.numServersPerShard; i++ {
+		server.dataResponseChannels[shardID][i] = make(chan pb.ReportResponse)
+		server.contestedGlobalCut[shardID][i] = make(ShardCut, server.numServersPerShard, server.numServersPerShard)
+	}
 }
 
 /**
-Remove the shardID metadata from the ordering layer.
+Remove the shardID metadata from the ordering layer. Does nothing if the shardID does not exist.
 
 This operation acquires a writer lock.
 */
 func (server *orderServer) deleteShard(shardID int) {
+	//Use read lock to determine if deleting is necessary
+	server.mu.RLock()
+	exists := server.shardIds.Contains(shardID)
+	server.mu.RUnlock()
+	if !exists {
+		return //Do not attempt to delete a shard that was already deleted
+	}
+
 	server.mu.Lock()
 	defer server.mu.Unlock()
-
+	server.shardIds.Remove(shardID)
 	for i := 0; i < server.numServersPerShard; i++ {
 		// Cleanup channels used for data layer communication
 		close(server.dataResponseChannels[shardID][i])
 	}
-	// Remove shardID from dataResponseChannels
 	delete(server.dataResponseChannels, shardID)
-	// Remove shardID from commitedGlobalCut
 	delete(server.committedGlobalCut, shardID)
-	// Remove shardID from contestedGlobalCut
 	delete(server.contestedGlobalCut, shardID)
-	// Remove shardID binding in order layer state
-	server.shardIds = removeShardIDFromSlice(shardID, server.shardIds)
 }
 
 ////////////////////// DATA LAYER GRPC FUNCTIONS
@@ -216,8 +244,13 @@ Reports final cuts to the data layer periodically. Reads from ResponseChannels a
 func (server *orderServer) reportResponseRoutine(stream pb.Order_ReportServer, req *pb.ReportRequest) {
 	shardID := int(req.ShardID)
 	num := req.ReplicaID
+
+	//Always attempt to add shard. Does nothing if shard already exists.
+	server.addShard(shardID)
+	//send response
 	for response := range server.dataResponseChannels[shardID][num] {
-		if err := stream.Send(&response); err != nil {
+		err := stream.Send(&response)
+		if err != nil {
 			logger.Panicf(err.Error())
 		}
 	}
@@ -236,6 +269,7 @@ func (server *orderServer) getState() orderServerState {
 		server.committedGlobalCut,
 		server.contestedGlobalCut,
 		server.globalSequenceNum,
+		server.shardIds,
 	}
 }
 
@@ -246,9 +280,30 @@ NOTE: assumes that shardIds and numServersPerShard do not change. If they change
 func (server *orderServer) loadState(state *orderServerState) {
 	server.mu.Lock()
 	defer server.mu.Unlock()
+
 	server.committedGlobalCut = state.committedGlobalCut
 	server.contestedGlobalCut = state.contestedGlobalCut
 	server.globalSequenceNum = state.globalSequenceNum
+
+	deleted := server.shardIds.Difference(state.shardIds)
+	added := state.shardIds.Difference(server.shardIds)
+
+	//delete channels
+	for shardID := range deleted.Iterable() {
+		for i := 0; i < server.numServersPerShard; i++ {
+			close(server.dataResponseChannels[shardID][i])
+		}
+		delete(server.dataResponseChannels, shardID)
+	}
+	//add channels
+	for shardID := range added.Iterable() {
+		server.dataResponseChannels[shardID] = make([]chan pb.ReportResponse, server.numServersPerShard, server.numServersPerShard)
+		for i := 0; i < server.numServersPerShard; i++ {
+			server.dataResponseChannels[shardID][i] = make(chan pb.ReportResponse)
+		}
+	}
+
+	server.shardIds = state.shardIds
 }
 
 /**
