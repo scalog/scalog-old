@@ -18,3 +18,22 @@ func SliceEq(a, b []int32) bool {
 	}
 	return true
 }
+func Max(x int, y int) int {
+	if x < y {
+		return y
+	}
+	return x
+}
+func Min(a int, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+func IntSliceToInt32Slice(intSlice []int) []int32 {
+	int32Slice := make([]int32, len(intSlice), len(intSlice))
+	for idx, element := range intSlice {
+		int32Slice[idx] = int32(element)
+	}
+	return int32Slice
+}

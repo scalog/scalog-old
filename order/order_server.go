@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gogo/protobuf/proto"
+	"github.com/scalog/scalog/internal/pkg/golib"
 	"github.com/scalog/scalog/logger"
 	pb "github.com/scalog/scalog/order/messaging"
 	"go.etcd.io/etcd/etcdserver/api/snap"
@@ -34,8 +35,7 @@ type orderServer struct {
 	globalSequenceNum    int
 	shardIds             []int
 	numServersPerShard   int
-	mu                   sync.Mutex   // Mutex for raft
-	shardMu              sync.RWMutex // Mutex for active shardID structures
+	mu                   sync.RWMutex
 	dataResponseChannels ResponseChannels
 	raftProposeChannel   chan<- string
 	raftSnapshotter      *snap.Snapshotter
@@ -55,8 +55,7 @@ func newOrderServer(shardIds []int, numServersPerShard int, raftProposeChannel c
 		globalSequenceNum:    0,
 		shardIds:             shardIds,
 		numServersPerShard:   numServersPerShard,
-		mu:                   sync.Mutex{},
-		shardMu:              sync.RWMutex{},
+		mu:                   sync.RWMutex{},
 		dataResponseChannels: initResponseChannels(shardIds, numServersPerShard),
 		raftProposeChannel:   raftProposeChannel,
 		raftSnapshotter:      raftSnapshotter,
@@ -98,7 +97,7 @@ func initResponseChannels(shardIds []int, numServersPerShard int) ResponseChanne
 /**
 Find min cut for each shard and compute changes from last committed cuts.
 
-CAUTION: THIS IS UNDER MUTEX PROTECTION. BE CAREFUL WHEN MODIFYING
+CAUTION: THE CALLER MUST OBTAIN THE LOCK
 */
 func (server *orderServer) mergeContestedCuts() Deltas {
 	deltas := initCommittedCut(server.shardIds, server.numServersPerShard)
@@ -107,7 +106,7 @@ func (server *orderServer) mergeContestedCuts() Deltas {
 		for i := 0; i < server.numServersPerShard; i++ {
 			minCut := math.MaxInt64
 			for j := 0; j < server.numServersPerShard; j++ {
-				minCut = min(server.contestedGlobalCut[shardID][j][i], minCut)
+				minCut = golib.Min(server.contestedGlobalCut[shardID][j][i], minCut)
 			}
 
 			prevCut := server.committedGlobalCut[shardID][i]
@@ -121,7 +120,7 @@ func (server *orderServer) mergeContestedCuts() Deltas {
 Compute global sequence number for each server and send update message.
 NOTE: Must be called after updateCommittedCuts().
 
-CAUTION: THIS IS UNDER MUTEX PROTECTION. BE CAREFUL WHEN MODIFYING
+CAUTION: THE CALLER MUST OBTAIN THE LOCK
 */
 func (server *orderServer) updateCommittedCutGlobalSeqNumAndBroadcastDeltas(deltas Deltas) {
 	for _, shardID := range server.shardIds {
@@ -129,7 +128,7 @@ func (server *orderServer) updateCommittedCutGlobalSeqNumAndBroadcastDeltas(delt
 
 		response := pb.ReportResponse{
 			StartGlobalSequenceNum: int32(server.globalSequenceNum),
-			Offsets:                intSliceToInt32Slice(server.committedGlobalCut[shardID]),
+			Offsets:                golib.IntSliceToInt32Slice(server.committedGlobalCut[shardID]),
 			Finalized:              false,
 		}
 
@@ -146,7 +145,7 @@ func (server *orderServer) updateCommittedCutGlobalSeqNumAndBroadcastDeltas(delt
 			continue
 		}
 
-		response.CommittedCuts = intSliceToInt32Slice(server.committedGlobalCut[shardID])
+		response.CommittedCuts = golib.IntSliceToInt32Slice(server.committedGlobalCut[shardID])
 		for i := 0; i < server.numServersPerShard; i++ {
 			server.dataResponseChannels[shardID][i] <- response
 		}
@@ -154,18 +153,35 @@ func (server *orderServer) updateCommittedCutGlobalSeqNumAndBroadcastDeltas(delt
 }
 
 /*
-notifyShardAndDeleteShardMetadata sends a finalization message to each replica
-within [shardID], and removes the remaining shardID metadata from the ordering layer.
+Send a finalization message to each replica within [shardID].
 
-This operation acquires a writer lock
+This operation acquires a writer lock.
 */
-func (server *orderServer) notifyShardAndDeleteShardMetadata(shardID int) {
+func (server *orderServer) notifyFinalizedShard(shardID int) {
 	terminationMessage := pb.ReportResponse{Finalized: true}
 
-	server.shardMu.Lock()
+	server.mu.Lock()
+	defer server.mu.Unlock()
 	for i := 0; i < server.numServersPerShard; i++ {
 		// Notify the relavant data replicas that they have been finalized
 		server.dataResponseChannels[shardID][i] <- terminationMessage
+	}
+}
+
+func (server *orderServer) addShard(shardID int) {
+
+}
+
+/**
+Remove the shardID metadata from the ordering layer.
+
+This operation acquires a writer lock.
+*/
+func (server *orderServer) deleteShard(shardID int) {
+	server.mu.Lock()
+	defer server.mu.Unlock()
+
+	for i := 0; i < server.numServersPerShard; i++ {
 		// Cleanup channels used for data layer communication
 		close(server.dataResponseChannels[shardID][i])
 	}
@@ -177,7 +193,6 @@ func (server *orderServer) notifyShardAndDeleteShardMetadata(shardID int) {
 	delete(server.contestedGlobalCut, shardID)
 	// Remove shardID binding in order layer state
 	server.shardIds = removeShardIDFromSlice(shardID, server.shardIds)
-	server.shardMu.Unlock()
 }
 
 ////////////////////// DATA LAYER GRPC FUNCTIONS
@@ -188,10 +203,10 @@ Periodically merge contested cuts and broadcast to data layer. Sends responses i
 func (server *orderServer) respondToDataLayer() {
 	ticker := time.NewTicker(100 * time.Microsecond) // todo remove hard-coded interval
 	for range ticker.C {
-		server.shardMu.RLock()
+		server.mu.RLock()
 		deltas := server.mergeContestedCuts()
 		server.updateCommittedCutGlobalSeqNumAndBroadcastDeltas(deltas)
-		server.shardMu.RUnlock()
+		server.mu.RUnlock()
 	}
 }
 
@@ -215,8 +230,8 @@ func (server *orderServer) reportResponseRoutine(stream pb.Order_ReportServer, r
 Extracts all variables necessary in state replication in orderServer.
 */
 func (server *orderServer) getState() orderServerState {
-	server.shardMu.RLock()
-	defer server.shardMu.RUnlock()
+	server.mu.RLock()
+	defer server.mu.RUnlock()
 	return orderServerState{
 		server.committedGlobalCut,
 		server.contestedGlobalCut,
@@ -229,8 +244,8 @@ Overwrites current server data with state data.
 NOTE: assumes that shardIds and numServersPerShard do not change. If they change, then we must recreate channels.
 */
 func (server *orderServer) loadState(state *orderServerState) {
-	server.shardMu.Lock()
-	defer server.shardMu.Unlock()
+	server.mu.Lock()
+	defer server.mu.Unlock()
 	server.committedGlobalCut = state.committedGlobalCut
 	server.contestedGlobalCut = state.contestedGlobalCut
 	server.globalSequenceNum = state.globalSequenceNum
@@ -240,8 +255,6 @@ func (server *orderServer) loadState(state *orderServerState) {
 Returns all stored data.
 */
 func (server *orderServer) getSnapshot() ([]byte, error) {
-	server.mu.Lock()
-	defer server.mu.Unlock()
 	return json.Marshal(server.getState())
 }
 
@@ -264,7 +277,8 @@ func (server *orderServer) listenForRaftCommits(raftCommitChannel <-chan *string
 		// The other action is if we decide on finalizing a particular shard.
 		if req.Finalized {
 			finalizedShardID := int(req.ShardID)
-			server.notifyShardAndDeleteShardMetadata(finalizedShardID)
+			server.notifyFinalizedShard(finalizedShardID)
+			server.deleteShard(finalizedShardID)
 			continue
 		}
 
@@ -274,12 +288,12 @@ func (server *orderServer) listenForRaftCommits(raftCommitChannel <-chan *string
 			cut[i] = int(req.TentativeCut[i])
 		}
 
-		server.shardMu.Lock()
+		server.mu.Lock()
 		for i := 0; i < len(cut); i++ {
 			curr := server.contestedGlobalCut[int(req.ShardID)][int(req.ReplicaID)][i]
-			server.contestedGlobalCut[int(req.ShardID)][int(req.ReplicaID)][i] = max(curr, cut[i])
+			server.contestedGlobalCut[int(req.ShardID)][int(req.ReplicaID)][i] = golib.Max(curr, cut[i])
 		}
-		server.shardMu.Unlock()
+		server.mu.Unlock()
 	}
 }
 
@@ -303,29 +317,5 @@ func (server *orderServer) attemptRecoverFromSnapshot() {
 		logger.Panicf(err.Error())
 	}
 
-	server.mu.Lock()
 	server.loadState(state)
-	server.mu.Unlock()
-}
-
-////////////////////// UTIL FUNCTIONS
-
-func max(x int, y int) int {
-	if x < y {
-		return y
-	}
-	return x
-}
-func min(a int, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-func intSliceToInt32Slice(intSlice []int) []int32 {
-	int32Slice := make([]int32, len(intSlice), len(intSlice))
-	for idx, element := range intSlice {
-		int32Slice[idx] = int32(element)
-	}
-	return int32Slice
 }
