@@ -10,8 +10,6 @@ import (
 
 	"k8s.io/apimachinery/pkg/types"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
 	"github.com/scalog/scalog/internal/pkg/kube"
 	"github.com/scalog/scalog/logger"
 	"github.com/scalog/scalog/order/messaging"
@@ -36,13 +34,14 @@ func Start() {
 	id, peers := getRaftIndexPeerUrls()
 	// TODO: remove hard coded server shard count
 	server := newOrderServer(golib.NewSet(), 2, nil, nil)
-	raftProposeChannel, raftCommitChannel, raftErrorChannel, raftSnapshotter :=
+	raftProposeChannel, raftCommitChannel, raftErrorChannel, raftSnapshotter, toLeaderChannel :=
 		newRaftNode(id, peers, false, server.getSnapshot)
 	server.raftProposeChannel = raftProposeChannel
 	server.raftSnapshotter = <-raftSnapshotter
 
 	messaging.RegisterOrderServer(grpcServer, server)
 	go server.respondToDataLayer()
+	//TODO forward messages to leader or commit them if you're the leader
 	go server.listenForRaftCommits(raftCommitChannel)
 	go listenForErrors(raftErrorChannel)
 
@@ -66,16 +65,9 @@ func getRaftIndexPeerUrls() (int, []string) {
 		// FOR TESTING. Single raft node
 		return 1, []string{"http://0.0.0.0:9876"}
 	}
-	clientset, err := kube.InitKubernetesClient()
-	if err != nil {
-		logger.Panicf(err.Error())
-	}
 
-	listOptions := metav1.ListOptions{LabelSelector: "app=scalog-order"}
-	pods, err := kube.GetShardPods(clientset, listOptions, viper.GetInt("raft_cluster_size"), viper.GetString("namespace"))
-	if err != nil {
-		logger.Panicf(err.Error())
-	}
+	pods := kube.GetShardPods(kube.InitKubernetesClient(), "app=scalog-order",
+		viper.GetInt("raft_cluster_size"), viper.GetString("namespace"))
 
 	size := len(pods.Items)
 	peers := make([]peerIDAndURL, size, size)

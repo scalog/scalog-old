@@ -230,6 +230,7 @@ Periodically merge contested cuts and broadcast to data layer. Sends responses i
 */
 func (server *orderServer) respondToDataLayer() {
 	ticker := time.NewTicker(100 * time.Microsecond) // todo remove hard-coded interval
+	//TODO only calculate if you're the Leader
 	for range ticker.C {
 		server.mu.RLock()
 		deltas := server.mergeContestedCuts()

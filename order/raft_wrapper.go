@@ -23,6 +23,7 @@ import (
 	"strconv"
 	"time"
 
+	pb "github.com/scalog/scalog/order/messaging"
 	"go.etcd.io/etcd/etcdserver/api/rafthttp"
 	"go.etcd.io/etcd/etcdserver/api/snap"
 	stats "go.etcd.io/etcd/etcdserver/api/v2stats"
@@ -42,6 +43,7 @@ type raftNode struct {
 	confChangeC chan raftpb.ConfChange // proposed cluster config changes
 	commitC     chan<- *string         // entries committed to log (k,v)
 	errorC      chan<- error           // errors from raft session
+	toLeaderC   chan pb.ReportRequest  // messages to send to the leader
 
 	id          int      // client ID for raft session
 	peers       []string // raft peer URLs
@@ -50,6 +52,7 @@ type raftNode struct {
 	snapdir     string   // path to snapshot directory
 	getSnapshot func() ([]byte, error)
 	lastIndex   uint64 // index of log at start
+	leaderId    uint64 // ID of leader; if this changes, reestablish leader channels
 
 	confState     raftpb.ConfState
 	snapshotIndex uint64
@@ -77,23 +80,26 @@ var defaultSnapshotCount uint64 = 10000
 // provided the proposal channel. All log entries are replayed over the
 // commit channel, followed by a nil message (to indicate the channel is
 // current), then new log entries. To shutdown, close proposeC and read errorC.
-func newRaftNode(id int, peers []string, join bool, getSnapshot func() ([]byte, error)) (chan<- string, <-chan *string, <-chan error, <-chan *snap.Snapshotter) {
+func newRaftNode(id int, peers []string, join bool, getSnapshot func() ([]byte, error)) (chan<- string, <-chan *string, <-chan error, <-chan *snap.Snapshotter, chan<- pb.ReportRequest) {
 
 	proposeC := make(chan string)
 	commitC := make(chan *string)
 	errorC := make(chan error)
+	toLeaderC := make(chan pb.ReportRequest)
 
 	rc := &raftNode{
 		proposeC:    proposeC,
 		confChangeC: make(chan raftpb.ConfChange),
 		commitC:     commitC,
 		errorC:      errorC,
+		toLeaderC:   toLeaderC,
 		id:          id,
 		peers:       peers,
 		join:        join,
 		waldir:      fmt.Sprintf("raftexample-%d", id),
 		snapdir:     fmt.Sprintf("raftexample-%d-snap", id),
 		getSnapshot: getSnapshot,
+		leaderId:    raft.None,
 		snapCount:   defaultSnapshotCount,
 		stopc:       make(chan struct{}),
 		httpstopc:   make(chan struct{}),
@@ -103,7 +109,7 @@ func newRaftNode(id int, peers []string, join bool, getSnapshot func() ([]byte, 
 		// rest of structure populated after WAL replay
 	}
 	go rc.startRaft()
-	return proposeC, commitC, errorC, rc.snapshotterReady
+	return proposeC, commitC, errorC, rc.snapshotterReady, toLeaderC
 }
 
 // Add node to peer list
@@ -458,6 +464,7 @@ func (rc *raftNode) serveChannels() {
 			}
 			rc.maybeTriggerSnapshot()
 			rc.node.Advance()
+			rc.leaderUpdate(rd.Lead)
 
 		case err := <-rc.transport.ErrorC:
 			rc.writeError(err)
@@ -487,6 +494,20 @@ func (rc *raftNode) serveRaft() {
 		log.Fatalf("raftexample: Failed to serve rafthttp (%v)", err)
 	}
 	close(rc.httpdonec)
+}
+
+////////////////////// LEADER MESSAGE FORWARDING
+
+func (rc *raftNode) leaderUpdate(newLeader uint64) {
+	if rc.leaderId == newLeader {
+		return
+	}
+	//TODO establish TCP connection to new leader (unless new leader is self)
+	//TODO destroy old leader connections
+}
+
+func (rc *raftNode) forwardMessagesToLeader() {
+	//TODO put messages from toLeaderC into TCP connection
 }
 
 func (rc *raftNode) Process(ctx context.Context, m raftpb.Message) error {
