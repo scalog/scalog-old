@@ -54,7 +54,7 @@ func init() {
 	viper.BindPFlag("raftNodeID", orderCmd.PersistentFlags().Lookup("raftNodeID"))
 
 	// Raft must listen on a port different than the one we serve gRPC requests on
-	viper.SetDefault("raftPort", 1337)
+	viper.SetDefault("raftPort", 10088)
 	viper.SetDefault("raft_cluster_size", 2)
 	viper.SetDefault("replica_count", 2)
 

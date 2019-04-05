@@ -24,7 +24,7 @@ spec:
         # Port to server gRPC requests
         - containerPort: 21024
         # Port for Raft nodes to communicate on
-        - containerPort: 1337
+        - containerPort: 10088
         env:
         - name: UID
           valueFrom:
