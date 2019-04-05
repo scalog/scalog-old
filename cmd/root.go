@@ -26,7 +26,6 @@ import (
 var cfgFile string
 var port int
 var localRun bool
-var serverCount int
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
@@ -64,10 +63,6 @@ func init() {
 	// Local run for testing
 	rootCmd.PersistentFlags().BoolVar(&localRun, "localRun", false, "Use if running locally")
 	viper.BindPFlag("localRun", rootCmd.PersistentFlags().Lookup("localRun"))
-
-	// Number of replicas within each shard
-	rootCmd.PersistentFlags().IntVar(&serverCount, "serverCount", 2, "Number of servers in a shard (default is 2)")
-	viper.BindPFlag("serverCount", rootCmd.PersistentFlags().Lookup("serverCount"))
 
 	viper.BindPFlag("port", rootCmd.PersistentFlags().Lookup("port"))
 

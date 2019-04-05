@@ -53,12 +53,14 @@ func init() {
 	// dataCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 
 	viper.SetDefault("name", "no-service-name")
+	viper.SetDefault("replica_count", "2")
 
 	// Load environment variables into Viper
 	viper.BindEnv("node_name")
 	viper.BindEnv("name")
 	viper.BindEnv("namespace")
 	viper.BindEnv("pod_ip")
+	viper.BindEnv("replica_count")
 
 	shardGroup, replicaID, shardID := parsePodName(viper.GetString("name"))
 	viper.SetDefault("shardGroup", shardGroup)

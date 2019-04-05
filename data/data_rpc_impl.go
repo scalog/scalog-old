@@ -31,8 +31,11 @@ func (server *dataServer) Append(c context.Context, req *pb.AppendRequest) (*pb.
 	for _, ch := range server.shardServers {
 		ch <- *replicateRequest
 	}
-	gsn := int32(<-r.commitResp)
-	return &pb.AppendResponse{Csn: r.csn, Gsn: gsn}, nil
+	gsn, ok := <-r.commitResp
+	if !ok {
+		return nil, errors.New("append request failed due to shard finalization. Please retry the append operation at a different shard")
+	}
+	return &pb.AppendResponse{Csn: r.csn, Gsn: int32(gsn)}, nil
 }
 
 func (server *dataServer) Replicate(stream pb.Data_ReplicateServer) error {

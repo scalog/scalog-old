@@ -34,4 +34,4 @@ WORKDIR /app
 
 EXPOSE 21024
 
-CMD ["./scalog", image_type]
+CMD ["./scalog", "data"]

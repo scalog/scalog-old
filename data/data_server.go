@@ -60,7 +60,7 @@ communication channels with them. Only then will this server become ready to tak
 */
 func newDataServer() *dataServer {
 	replicaID := viper.GetInt("id")
-	replicaCount := viper.GetInt("serverCount")
+	replicaCount := viper.GetInt("replica_count")
 	// TODO: Refactor this out
 	shardName := viper.GetString("shardGroup")
 	shardID := viper.GetInt32("shardID")
@@ -78,7 +78,7 @@ func newDataServer() *dataServer {
 		}
 
 		listOptions := metav1.ListOptions{LabelSelector: "tier=" + shardName}
-		pods, err := kube.GetShardPods(clientset, listOptions, viper.GetInt("serverCount"), viper.GetString("namespace"))
+		pods, err := kube.GetShardPods(clientset, listOptions, replicaCount, viper.GetString("namespace"))
 		if err != nil {
 			logger.Panicf(err.Error())
 		}
@@ -171,6 +171,17 @@ func (server *dataServer) labelPodAsFinalized() {
 }
 
 /*
+	Closes all channels to all records managed by this replica. If a client was still
+	waiting for a request, then the shutdown of the channels will notify them that their
+	append request failed.
+*/
+func (server *dataServer) notifyAllWaitingClients() {
+	for _, record := range server.serverBuffers[server.replicaID] {
+		close(record.commitResp)
+	}
+}
+
+/*
 	Listens on the given stream for finalized cuts from the ordering layer. Finalized cuts
 	are read into the server buffers where we record GSN's and respond to clients.
 */
@@ -204,6 +215,7 @@ func (server *dataServer) receiveFinalizedCuts(stream om.Order_ReportClient, sen
 			// Prevent discovery layer from finding this pod ever again
 			server.labelPodAsFinalized()
 			// Upon returning, stop receiving cuts from the ordering layer
+
 			return
 		}
 
