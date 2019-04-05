@@ -45,6 +45,19 @@ git clone https://github.com/scalog/scalog.git
 ## Updating dependencies
 Run `dep ensure` in `~/go/src/github.com/scalog/scalog`. This should update your `Gopkg.lock` and `Gopkg.toml` files.
 
-## Running Scalog
+## ProtoBuf
+### Installing
+In order to convert `.proto` files into `.pb.go` files for serializing & deserializing messages, we need to install ProtoBuf for Golang.
+1. Follow instructions for your architecture to install ProtoBuf for C++ [here](https://github.com/protocolbuffers/protobuf/blob/master/src/README.md). Be sure to download the file whose name starts with `protobuf-cpp-`.
+2. Install ProtoBuf for Golang by running:
+    ```sh
+    go get -u github.com/golang/protobuf/protoc-gen-go
+    ```
+### Generating .pb.go files
+Run (in scalog's main directory)
+```sh
+./genpb.sh
+```
 
+## Running Scalog
 This project is a work in progress. While the kubernetes operator is being implemented, Scalog can be run using a series of scripts. 
