@@ -29,16 +29,21 @@ type Deltas CommittedGlobalCut
 // Map<Shard ID, Channels to write responses to for each server in shard>
 type ResponseChannels map[int][]chan pb.ReportResponse
 
+// Map<Shard ID, Channels to write responses to when a shard finalization
+// request has been committed>
+type FinalizationResponseChannels map[int32]chan bool
+
 type orderServer struct {
-	committedGlobalCut   CommittedGlobalCut
-	contestedGlobalCut   ContestedGlobalCut
-	globalSequenceNum    int
-	shardIds             *golib.Set
-	numServersPerShard   int
-	mu                   sync.RWMutex
-	dataResponseChannels ResponseChannels
-	raftProposeChannel   chan<- string
-	raftSnapshotter      *snap.Snapshotter
+	committedGlobalCut           CommittedGlobalCut
+	contestedGlobalCut           ContestedGlobalCut
+	globalSequenceNum            int
+	shardIds                     *golib.Set
+	numServersPerShard           int
+	mu                           sync.RWMutex
+	finalizationResponseChannels FinalizationResponseChannels
+	dataResponseChannels         ResponseChannels
+	raftProposeChannel           chan<- string
+	raftSnapshotter              *snap.Snapshotter
 }
 
 // Fields in orderServer necessary for state replication. Used in Raft.
@@ -51,15 +56,16 @@ type orderServerState struct {
 
 func newOrderServer(shardIds *golib.Set, numServersPerShard int, raftProposeChannel chan<- string, raftSnapshotter *snap.Snapshotter) *orderServer {
 	return &orderServer{
-		committedGlobalCut:   initCommittedCut(shardIds, numServersPerShard),
-		contestedGlobalCut:   initContestedCut(shardIds, numServersPerShard),
-		globalSequenceNum:    0,
-		shardIds:             shardIds,
-		numServersPerShard:   numServersPerShard,
-		mu:                   sync.RWMutex{},
-		dataResponseChannels: initResponseChannels(shardIds, numServersPerShard),
-		raftProposeChannel:   raftProposeChannel,
-		raftSnapshotter:      raftSnapshotter,
+		committedGlobalCut:           initCommittedCut(shardIds, numServersPerShard),
+		contestedGlobalCut:           initContestedCut(shardIds, numServersPerShard),
+		globalSequenceNum:            0,
+		shardIds:                     shardIds,
+		numServersPerShard:           numServersPerShard,
+		mu:                           sync.RWMutex{},
+		finalizationResponseChannels: initFinalizationChannels(),
+		dataResponseChannels:         initResponseChannels(shardIds, numServersPerShard),
+		raftProposeChannel:           raftProposeChannel,
+		raftSnapshotter:              raftSnapshotter,
 	}
 }
 
@@ -93,6 +99,10 @@ func initResponseChannels(shardIds *golib.Set, numServersPerShard int) ResponseC
 		channels[shardID] = channelsForShard
 	}
 	return channels
+}
+
+func initFinalizationChannels() FinalizationResponseChannels {
+	return make(FinalizationResponseChannels)
 }
 
 /**
@@ -159,6 +169,11 @@ Send a finalization message to each replica within [shardID].
 This operation acquires a writer lock.
 */
 func (server *orderServer) notifyFinalizedShard(shardID int) {
+	// Do nothing if this shardID doesn't exist
+	if !server.shardIds.Contains(shardID) {
+		return
+	}
+
 	terminationMessage := pb.ReportResponse{Finalized: true}
 
 	server.mu.Lock()
@@ -332,6 +347,7 @@ func (server *orderServer) listenForRaftCommits(raftCommitChannel <-chan *string
 		// The other action is if we decide on finalizing a particular shard.
 		if req.Finalized {
 			finalizedShardID := int(req.ShardID)
+			server.finalizationResponseChannels[req.ShardID] <- true
 			server.notifyFinalizedShard(finalizedShardID)
 			server.deleteShard(finalizedShardID)
 			continue

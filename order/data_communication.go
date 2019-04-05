@@ -50,8 +50,13 @@ func (server *orderServer) Finalize(ctx context.Context, req *pb.FinalizeRequest
 			logger.Printf("Could not marshal finalization request message")
 			return nil, err
 		}
+		server.finalizationResponseChannels[shardID] = make(chan bool)
 		server.raftProposeChannel <- string(raftReq)
 	}
-	resp := &pb.FinalizeResponse{}
-	return resp, nil
+	// Wait for raft to commit the finalization requests before responding
+	for _, shardID := range req.ShardIDs {
+		<-server.finalizationResponseChannels[shardID]
+		delete(server.finalizationResponseChannels, shardID)
+	}
+	return &pb.FinalizeResponse{}, nil
 }

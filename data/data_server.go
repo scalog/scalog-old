@@ -127,7 +127,6 @@ func (server *dataServer) sendTentativeCutsToOrder(stream om.Order_ReportClient,
 	for i := range sent {
 		sent[i] = 0
 	}
-	// ticker := time.NewTicker(20 * time.Millisecond) // todo remove hard-coded interval
 	for range ticker.C {
 		cut := make([]int32, server.replicaCount)
 		for idx, buf := range server.serverBuffers {
