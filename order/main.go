@@ -33,11 +33,9 @@ func Start() {
 		}),
 	)
 
-	var server *orderServer
 	id, peers := getRaftIndexPeerUrls()
 	// TODO: remove hard coded server shard count
-	// TODO: Allow new shards to join the ordering layer
-	server = newOrderServer(golib.NewSet(1, 1), 2, nil, nil)
+	server := newOrderServer(golib.NewSet(), 2, nil, nil)
 	raftProposeChannel, raftCommitChannel, raftErrorChannel, raftSnapshotter :=
 		newRaftNode(id, peers, false, server.getSnapshot)
 	server.raftProposeChannel = raftProposeChannel

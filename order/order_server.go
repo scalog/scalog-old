@@ -64,7 +64,7 @@ func newOrderServer(shardIds *golib.Set, numServersPerShard int, raftProposeChan
 }
 
 func initCommittedCut(shardIds *golib.Set, numServersPerShard int) CommittedGlobalCut {
-	cut := make(CommittedGlobalCut, shardIds.Size())
+	cut := make(CommittedGlobalCut)
 	for shardID := range shardIds.Iterable() {
 		cut[shardID] = make(ShardCut, numServersPerShard, numServersPerShard)
 	}
@@ -72,7 +72,7 @@ func initCommittedCut(shardIds *golib.Set, numServersPerShard int) CommittedGlob
 }
 
 func initContestedCut(shardIds *golib.Set, numServersPerShard int) ContestedGlobalCut {
-	cut := make(ContestedGlobalCut, shardIds.Size())
+	cut := make(ContestedGlobalCut)
 	for shardID := range shardIds.Iterable() {
 		shardCuts := make([]ShardCut, numServersPerShard, numServersPerShard)
 		for i := 0; i < numServersPerShard; i++ {
@@ -84,7 +84,7 @@ func initContestedCut(shardIds *golib.Set, numServersPerShard int) ContestedGlob
 }
 
 func initResponseChannels(shardIds *golib.Set, numServersPerShard int) ResponseChannels {
-	channels := make(ResponseChannels, shardIds.Size())
+	channels := make(ResponseChannels)
 	for shardID := range shardIds.Iterable() {
 		channelsForShard := make([]chan pb.ReportResponse, numServersPerShard, numServersPerShard)
 		for i := 0; i < numServersPerShard; i++ {
