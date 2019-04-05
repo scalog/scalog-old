@@ -8,12 +8,12 @@ import (
 	"net"
 
 	"github.com/scalog/scalog/discovery/rpc"
+	"github.com/scalog/scalog/internal/pkg/kube"
 	"github.com/scalog/scalog/logger"
 	"github.com/spf13/viper"
 	"google.golang.org/grpc"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
 )
 
 // Start serving requests for the data layer
@@ -57,29 +57,15 @@ func (ds *discoveryServer) DiscoverServers(ctx context.Context, req *rpc.Discove
 }
 
 func newDiscoveryServer() *discoveryServer {
-	clientset := initKubernetesClient()
-	listOptions := metav1.ListOptions{
-		LabelSelector: "type=exposedDataService",
+	clientset, err := kube.InitKubernetesClient()
+	if err != nil {
+		logger.Panicf(err.Error())
 	}
+
+	listOptions := metav1.ListOptions{LabelSelector: "type=exposedDataService"}
 	ds := &discoveryServer{
 		client:       clientset,
 		serverLabels: listOptions,
 	}
 	return ds
-}
-
-//////////////////	Utility Functions
-
-func initKubernetesClient() *kubernetes.Clientset {
-	// creates the in-cluster config
-	config, err := rest.InClusterConfig()
-	if err != nil {
-		panic(err.Error())
-	}
-	// creates the clientset
-	clientset, err := kubernetes.NewForConfig(config)
-	if err != nil {
-		panic(err.Error())
-	}
-	return clientset
 }

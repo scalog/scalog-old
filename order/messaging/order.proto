@@ -17,6 +17,8 @@ message ReportRequest {
     int32 shardID = 1;
     int32 replicaID = 2;
     repeated int32 tentativeCut = 3;
+    // True only if the ordering layer wishes to propose a finalization of this particular shard
+    bool finalized = 4;
 }
 
 message ReportResponse {
@@ -25,7 +27,9 @@ message ReportResponse {
 	// Offsets of the newly ordered records
 	repeated int32 offsets = 2;
 	// Should be in order of the server ID
-	repeated int32 committedCuts = 3;
+    repeated int32 committedCuts = 3;
+    // True only if the ordering layer is finalizing this data replica
+    bool finalized = 4;
 }
 
 message RegisterRequest {
@@ -36,10 +40,12 @@ message RegisterRequest {
 message RegisterResponse {}
 
 message FinalizeRequest {
-    int32 shardID = 1;
+    // Array of shards to finalize
+    repeated int32 shardIDs = 1;
+    // Finalize these shards after [finalizeAfterCuts] more cuts
+    int32 finalizeAfterCuts = 2;
 }
 
 message FinalizeResponse {}
 
-// Should we be able to fluidly configure f? NO.
 // Finalize needs to be sent from shards or from ordering? Client application that can manually finalize.

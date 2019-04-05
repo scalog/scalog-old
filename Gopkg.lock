@@ -580,7 +580,7 @@
 
 [[projects]]
   branch = "master"
-  digest = "1:97f690e88b67728656d37740d16daeaf0e22c0ecd8b0c7793747c3f156c40858"
+  digest = "1:38817a51f9293fa3df117364907ea9fe94e3dff6a68149975bbf1718895a6ba1"
   name = "k8s.io/apimachinery"
   packages = [
     "pkg/api/errors",
@@ -614,6 +614,7 @@
     "pkg/util/sets",
     "pkg/util/validation",
     "pkg/util/validation/field",
+    "pkg/util/wait",
     "pkg/util/yaml",
     "pkg/version",
     "pkg/watch",
@@ -623,7 +624,7 @@
   revision = "2f7e9cae4418a86ea03618fea183bfe9fe43c574"
 
 [[projects]]
-  digest = "1:67a85fd36cd1803b7421e6179e55e0b6668417ab338e20451cec0988f0762c63"
+  digest = "1:086ab506c7a5d4950a54924ecec94028b4f77a28d49802e123482b0b118d31ea"
   name = "k8s.io/client-go"
   packages = [
     "discovery",
@@ -676,6 +677,7 @@
     "util/connrotation",
     "util/flowcontrol",
     "util/integer",
+    "util/retry",
   ]
   pruneopts = "UT"
   revision = "e64494209f554a6723674bd494d69445fb76a1d4"
@@ -717,12 +719,15 @@
     "go.uber.org/zap",
     "golang.org/x/net/context",
     "google.golang.org/grpc",
+    "google.golang.org/grpc/codes",
     "google.golang.org/grpc/keepalive",
+    "google.golang.org/grpc/status",
     "k8s.io/api/core/v1",
     "k8s.io/apimachinery/pkg/apis/meta/v1",
     "k8s.io/apimachinery/pkg/types",
     "k8s.io/client-go/kubernetes",
     "k8s.io/client-go/rest",
+    "k8s.io/client-go/util/retry",
   ]
   solver-name = "gps-cdcl"
   solver-version = 1

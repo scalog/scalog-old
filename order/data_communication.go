@@ -43,5 +43,20 @@ func (server *orderServer) Register(ctx context.Context, req *pb.RegisterRequest
 }
 
 func (server *orderServer) Finalize(ctx context.Context, req *pb.FinalizeRequest) (*pb.FinalizeResponse, error) {
-	return nil, nil
+	for _, shardID := range req.ShardIDs {
+		proposedShardFinalization := pb.ReportRequest{ShardID: shardID, Finalized: true}
+		raftReq, err := proto.Marshal(&proposedShardFinalization)
+		if err != nil {
+			logger.Printf("Could not marshal finalization request message")
+			return nil, err
+		}
+		server.finalizationResponseChannels[shardID] = make(chan bool)
+		server.raftProposeChannel <- string(raftReq)
+	}
+	// Wait for raft to commit the finalization requests before responding
+	for _, shardID := range req.ShardIDs {
+		<-server.finalizationResponseChannels[shardID]
+		delete(server.finalizationResponseChannels, shardID)
+	}
+	return &pb.FinalizeResponse{}, nil
 }
