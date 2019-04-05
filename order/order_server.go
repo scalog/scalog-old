@@ -317,7 +317,7 @@ func (server *orderServer) getSnapshot() ([]byte, error) {
 /**
 Add contested cuts from the data layer. Triggered when Raft commits the new message.
 */
-func (server *orderServer) listenForRaftCommits(raftCommitChannel <-chan *string) {
+func (server *orderServer) listenForRaftCommits(raftCommitChannel <-chan *string, toLeaderStream *pb.Order_ReportClient, toLeaderMu *sync.Mutex) {
 	for requestString := range raftCommitChannel {
 		if requestString == nil {
 			server.attemptRecoverFromSnapshot()

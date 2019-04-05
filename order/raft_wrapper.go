@@ -16,11 +16,16 @@ package order
 import (
 	"context"
 	"fmt"
+	"github.com/scalog/scalog/internal/pkg/golib"
+	"github.com/spf13/viper"
+	"google.golang.org/grpc"
 	"log"
 	"net/http"
 	"net/url"
 	"os"
 	"strconv"
+	"strings"
+	"sync"
 	"time"
 
 	pb "github.com/scalog/scalog/order/messaging"
@@ -43,7 +48,10 @@ type raftNode struct {
 	confChangeC chan raftpb.ConfChange // proposed cluster config changes
 	commitC     chan<- *string         // entries committed to log (k,v)
 	errorC      chan<- error           // errors from raft session
-	toLeaderC   chan pb.ReportRequest  // messages to send to the leader
+
+	toLeaderStream *pb.Order_ReportClient // stream open to current leader. May be nil
+	toLeaderConn   *grpc.ClientConn       // connection open to current leader. May be nil. Don't use outside this class
+	toLeaderMu     *sync.Mutex            // must acquire before operating on toLeaderStream
 
 	id          int      // client ID for raft session
 	peers       []string // raft peer URLs
@@ -80,36 +88,38 @@ var defaultSnapshotCount uint64 = 10000
 // provided the proposal channel. All log entries are replayed over the
 // commit channel, followed by a nil message (to indicate the channel is
 // current), then new log entries. To shutdown, close proposeC and read errorC.
-func newRaftNode(id int, peers []string, join bool, getSnapshot func() ([]byte, error)) (chan<- string, <-chan *string, <-chan error, <-chan *snap.Snapshotter, chan<- pb.ReportRequest) {
+func newRaftNode(id int, peers []string, join bool, getSnapshot func() ([]byte, error)) (chan<- string, <-chan *string, <-chan error, <-chan *snap.Snapshotter, *pb.Order_ReportClient, *sync.Mutex) {
 
 	proposeC := make(chan string)
 	commitC := make(chan *string)
 	errorC := make(chan error)
-	toLeaderC := make(chan pb.ReportRequest)
+	var toLeaderStream *pb.Order_ReportClient //establish common pointer so we can set Stream once it is created
+	toLeaderMu := sync.Mutex{}
 
 	rc := &raftNode{
-		proposeC:    proposeC,
-		confChangeC: make(chan raftpb.ConfChange),
-		commitC:     commitC,
-		errorC:      errorC,
-		toLeaderC:   toLeaderC,
-		id:          id,
-		peers:       peers,
-		join:        join,
-		waldir:      fmt.Sprintf("raftexample-%d", id),
-		snapdir:     fmt.Sprintf("raftexample-%d-snap", id),
-		getSnapshot: getSnapshot,
-		leaderId:    raft.None,
-		snapCount:   defaultSnapshotCount,
-		stopc:       make(chan struct{}),
-		httpstopc:   make(chan struct{}),
-		httpdonec:   make(chan struct{}),
+		proposeC:       proposeC,
+		confChangeC:    make(chan raftpb.ConfChange),
+		commitC:        commitC,
+		errorC:         errorC,
+		toLeaderStream: toLeaderStream,
+		toLeaderMu:     &toLeaderMu,
+		id:             id,
+		peers:          peers,
+		join:           join,
+		waldir:         fmt.Sprintf("raftexample-%d", id),
+		snapdir:        fmt.Sprintf("raftexample-%d-snap", id),
+		getSnapshot:    getSnapshot,
+		leaderId:       raft.None,
+		snapCount:      defaultSnapshotCount,
+		stopc:          make(chan struct{}),
+		httpstopc:      make(chan struct{}),
+		httpdonec:      make(chan struct{}),
 
 		snapshotterReady: make(chan *snap.Snapshotter, 1),
 		// rest of structure populated after WAL replay
 	}
 	go rc.startRaft()
-	return proposeC, commitC, errorC, rc.snapshotterReady, toLeaderC
+	return proposeC, commitC, errorC, rc.snapshotterReady, toLeaderStream, &toLeaderMu
 }
 
 // Add node to peer list
@@ -496,18 +506,41 @@ func (rc *raftNode) serveRaft() {
 	close(rc.httpdonec)
 }
 
-////////////////////// LEADER MESSAGE FORWARDING
-
+/**
+Upon knowing of a new leader's ID:
+1. Do nothing if the leader is the same as before
+2. Close connections to previous leader
+3. If leader is not yourself, open connections to the new leader
+*/
 func (rc *raftNode) leaderUpdate(newLeader uint64) {
 	if rc.leaderId == newLeader {
 		return
 	}
-	//TODO establish TCP connection to new leader (unless new leader is self)
-	//TODO destroy old leader connections
-}
 
-func (rc *raftNode) forwardMessagesToLeader() {
-	//TODO put messages from toLeaderC into TCP connection
+	rc.toLeaderMu.Lock()
+	defer rc.toLeaderMu.Unlock()
+
+	// close connection to previous leader
+	if rc.toLeaderConn != nil {
+		rc.toLeaderConn.Close()
+	}
+
+	// no need to connect to yourself
+	if rc.leaderId == uint64(rc.id) {
+		return
+	}
+
+	// connect to new leader
+	leaderRaftUrl := rc.peers[newLeader-1] // raft node IDs = index + 1
+	leaderGrpcUrl := strings.Split(leaderRaftUrl, ":")[0] + ":" + string(viper.GetInt("port"))
+
+	rc.toLeaderConn = golib.ConnectTo(leaderGrpcUrl)
+	client := pb.NewOrderClient(rc.toLeaderConn)
+	stream, err := client.Report(context.Background())
+	if err != nil {
+		panic(err)
+	}
+	rc.toLeaderStream = &stream
 }
 
 func (rc *raftNode) Process(ctx context.Context, m raftpb.Message) error {
