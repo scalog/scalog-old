@@ -5,20 +5,32 @@ The following assumes you're running a Unix based machine (Linux/Mac). These are
 
 ### Installing Go
 1. Find the right download for your system [here](https://golang.org/dl/).
-2. Set your `$GOPATH` by adding this to your `~/.bashrc`. Note that this is different from `$GOROOT`, where Go is installed:
+2. Set your `$GOPATH` by adding this to your `~/.bashrc` (`~/.bash_profile` on MacOS). Note that this is different from `$GOROOT`, where Go is installed:
     ```sh
     export GOPATH="$HOME/go"
     PATH=$PATH:$GOPATH/bin
     ```
-    Refresh your environment variables and prepare for installing `dep` (for dependency management) by running:
+    Refresh your environment variables:
+    - Windows, Linux:
+      ```sh
+       source ~/.bashrc
+      ```
+    - MacOS:
+      ```sh
+       source ~/.bash_profile
+      ```
+    Prepare for installing `dep` (for dependency management) by running:
      ```sh
-     source ~/.bashrc
      mkdir ~/go
      mkdir ~/go/bin
      mkdir ~/go/src
      mkdir ~/go/pkg
      ```
-3. Install `dep` by following instructions [here](https://github.com/golang/dep).
+3. Install `dep` by executing:
+    ```sh
+    curl https://raw.githubusercontent.com/golang/dep/master/install.sh | sh
+    ```
+    Based on the instructions [here](https://github.com/golang/dep).
 
 
 ### Cloning
