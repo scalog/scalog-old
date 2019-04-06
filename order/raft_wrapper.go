@@ -46,7 +46,7 @@ import (
 type raftNode struct {
 	proposeC    chan string            // proposed messages (k,v)
 	confChangeC chan raftpb.ConfChange // proposed cluster config changes
-	commitC     chan<- raftpb.Entry    // entries committed to log (k,v)
+	commitC     chan *raftpb.Entry     // entries committed to log (k,v)
 	errorC      chan<- error           // errors from raft session
 
 	toLeaderStream pb.Order_ForwardClient // stream open to current leader. May be nil
@@ -92,7 +92,7 @@ var defaultSnapshotCount uint64 = 10000
 func newRaftNode(id int, peers []string, join bool, getSnapshot func() ([]byte, error)) *raftNode {
 
 	proposeC := make(chan string)
-	commitC := make(chan raftpb.Entry)
+	commitC := make(chan *raftpb.Entry)
 	errorC := make(chan error)
 
 	rc := &raftNode{
@@ -180,7 +180,7 @@ func (rc *raftNode) publishEntries(ents []raftpb.Entry) bool {
 				break
 			}
 			select {
-			case rc.commitC <- ents[i]:
+			case rc.commitC <- &ents[i]:
 			case <-rc.stopc:
 				return false
 			}

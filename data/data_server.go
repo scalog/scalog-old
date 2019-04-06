@@ -228,8 +228,13 @@ func (server *dataServer) receiveFinalizedCuts(stream om.Order_ReportClient, sen
 			logger.Printf("Received older cut: had v%d, received [%d, %d]", server.lastLogNum, minLogNum, maxLogNum)
 			continue
 		} else if minLogNum > server.lastLogNum+1 {
-			//TODO request ordering layer to send missing cuts
 			logger.Printf("Missing logs: had v%d, received [%d, %d]", server.lastLogNum, minLogNum, maxLogNum)
+			request := om.ReportRequest{
+				MinLogNum: int32(server.lastLogNum + 1),
+				MaxLogNum: int32(maxLogNum),
+				ShardID:   server.shardID,
+			}
+			stream.Send(&request)
 			continue
 		}
 

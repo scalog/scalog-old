@@ -325,6 +325,32 @@ func (server *orderServer) loadBatchCut(res *pb.ForwardResponse) {
 	}
 }
 
+/**
+Send the requested missing cuts to the data layer, in order.
+*/
+func (server *orderServer) provideMissingCuts(minLogNum int, maxLogNum int, shardID int, stream pb.Order_ReportServer) {
+	entries := server.rc.getEntries(minLogNum, maxLogNum)
+	savedCut := &pb.ForwardResponse{}
+
+	for _, entry := range entries {
+		if err := proto.Unmarshal(entry.Data, savedCut); err != nil {
+			logger.Printf("Attempted to unmarshal a non-ForwardResponse entry. This is OK :)")
+			continue
+		}
+
+		response := pb.ReportResponse{
+			StartGlobalSequenceNum: savedCut.StartGlobalSequenceNums[int32(shardID)],
+			CommittedCuts:          savedCut.CommittedCuts[int32(shardID)].List,
+			MinLogNum:              int32(minLogNum),
+			MaxLogNum:              int32(entry.Index),
+			Finalized:              false,
+		}
+		stream.Send(&response)
+
+		minLogNum = int(entry.Index) + 1
+	}
+}
+
 ////////////////////// RAFT FUNCTIONS
 
 /**
