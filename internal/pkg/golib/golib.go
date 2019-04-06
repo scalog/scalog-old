@@ -31,7 +31,7 @@ func Min(a int, b int) int {
 	return b
 }
 func IntSliceToInt32Slice(intSlice []int) []int32 {
-	int32Slice := make([]int32, len(intSlice), len(intSlice))
+	int32Slice := make([]int32, len(intSlice))
 	for idx, element := range intSlice {
 		int32Slice[idx] = int32(element)
 	}

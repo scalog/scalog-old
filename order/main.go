@@ -67,7 +67,7 @@ func getRaftIndexPeerUrls() (int, []string) {
 		viper.GetInt("raft_cluster_size"), viper.GetString("namespace"))
 
 	size := len(pods.Items)
-	peers := make([]peerIDAndURL, size, size)
+	peers := make([]peerIDAndURL, size)
 	for i, pod := range pods.Items {
 		logger.Printf("Peer ip: " + pod.Status.PodIP + ", uid: " + string(pod.UID))
 		peers[i] = peerIDAndURL{
@@ -84,7 +84,7 @@ func getRaftIndexPeerUrls() (int, []string) {
 	logger.Printf("My uid: " + id)
 
 	index := -1
-	urls := make([]string, size, size)
+	urls := make([]string, size)
 	for i, idURL := range peers {
 		if string(idURL.id) == id {
 			index = i

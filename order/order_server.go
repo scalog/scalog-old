@@ -72,7 +72,7 @@ func newOrderServer(shardIds *golib.Set, numServersPerShard int) *orderServer {
 func initCommittedCut(shardIds *golib.Set, numServersPerShard int) CommittedGlobalCut {
 	cut := make(CommittedGlobalCut)
 	for shardID := range shardIds.Iterable() {
-		cut[shardID] = make(ShardCut, numServersPerShard, numServersPerShard)
+		cut[shardID] = make(ShardCut, numServersPerShard)
 	}
 	return cut
 }
@@ -80,9 +80,9 @@ func initCommittedCut(shardIds *golib.Set, numServersPerShard int) CommittedGlob
 func initContestedCut(shardIds *golib.Set, numServersPerShard int) ContestedGlobalCut {
 	cut := make(ContestedGlobalCut)
 	for shardID := range shardIds.Iterable() {
-		shardCuts := make([]ShardCut, numServersPerShard, numServersPerShard)
+		shardCuts := make([]ShardCut, numServersPerShard)
 		for i := 0; i < numServersPerShard; i++ {
-			shardCuts[i] = make(ShardCut, numServersPerShard, numServersPerShard)
+			shardCuts[i] = make(ShardCut, numServersPerShard)
 		}
 		cut[shardID] = shardCuts
 	}
@@ -92,7 +92,7 @@ func initContestedCut(shardIds *golib.Set, numServersPerShard int) ContestedGlob
 func initResponseChannels(shardIds *golib.Set, numServersPerShard int) ResponseChannels {
 	channels := make(ResponseChannels)
 	for shardID := range shardIds.Iterable() {
-		channelsForShard := make([]chan pb.ReportResponse, numServersPerShard, numServersPerShard)
+		channelsForShard := make([]chan pb.ReportResponse, numServersPerShard)
 		for i := 0; i < numServersPerShard; i++ {
 			channelsForShard[i] = make(chan pb.ReportResponse)
 		}
@@ -151,13 +151,13 @@ func (server *orderServer) addShard(shardID int) {
 	defer server.mu.Unlock()
 
 	server.shardIds.Add(shardID)
-	server.committedGlobalCut[shardID] = make(ShardCut, server.numServersPerShard, server.numServersPerShard)
-	server.contestedGlobalCut[shardID] = make([]ShardCut, server.numServersPerShard, server.numServersPerShard)
-	server.dataResponseChannels[shardID] = make([]chan pb.ReportResponse, server.numServersPerShard, server.numServersPerShard)
+	server.committedGlobalCut[shardID] = make(ShardCut, server.numServersPerShard)
+	server.contestedGlobalCut[shardID] = make([]ShardCut, server.numServersPerShard)
+	server.dataResponseChannels[shardID] = make([]chan pb.ReportResponse, server.numServersPerShard)
 
 	for i := 0; i < server.numServersPerShard; i++ {
 		server.dataResponseChannels[shardID][i] = make(chan pb.ReportResponse)
-		server.contestedGlobalCut[shardID][i] = make(ShardCut, server.numServersPerShard, server.numServersPerShard)
+		server.contestedGlobalCut[shardID][i] = make(ShardCut, server.numServersPerShard)
 	}
 }
 
@@ -454,7 +454,7 @@ func (server *orderServer) loadState(state *orderServerState) {
 	}
 	//add channels
 	for shardID := range added.Iterable() {
-		server.dataResponseChannels[shardID] = make([]chan pb.ReportResponse, server.numServersPerShard, server.numServersPerShard)
+		server.dataResponseChannels[shardID] = make([]chan pb.ReportResponse, server.numServersPerShard)
 		for i := 0; i < server.numServersPerShard; i++ {
 			server.dataResponseChannels[shardID][i] = make(chan pb.ReportResponse)
 		}
