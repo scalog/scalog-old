@@ -49,9 +49,10 @@ type raftNode struct {
 	commitC     chan<- *string         // entries committed to log (k,v)
 	errorC      chan<- error           // errors from raft session
 
-	toLeaderStream *pb.Order_ReportClient // stream open to current leader. May be nil
-	toLeaderConn   *grpc.ClientConn       // connection open to current leader. May be nil. Don't use outside this class
-	toLeaderMu     *sync.Mutex            // must acquire before operating on toLeaderStream
+	toLeaderStream *pb.Order_ForwardClient // stream open to current leader. May be nil
+	toLeaderConn   *grpc.ClientConn        // connection open to current leader. May be nil. Don't use outside this class
+	isLeader       bool
+	leaderMu       *sync.RWMutex // must acquire before operating on toLeaderStream or isLeader
 
 	id          int      // client ID for raft session
 	peers       []string // raft peer URLs
@@ -88,13 +89,13 @@ var defaultSnapshotCount uint64 = 10000
 // provided the proposal channel. All log entries are replayed over the
 // commit channel, followed by a nil message (to indicate the channel is
 // current), then new log entries. To shutdown, close proposeC and read errorC.
-func newRaftNode(id int, peers []string, join bool, getSnapshot func() ([]byte, error)) (chan<- string, <-chan *string, <-chan error, <-chan *snap.Snapshotter, *pb.Order_ReportClient, *sync.Mutex) {
+func newRaftNode(id int, peers []string, join bool, getSnapshot func() ([]byte, error)) (chan<- string, <-chan *string, <-chan error, <-chan *snap.Snapshotter, *pb.Order_ForwardClient, *bool, *sync.RWMutex) {
 
 	proposeC := make(chan string)
 	commitC := make(chan *string)
 	errorC := make(chan error)
-	var toLeaderStream *pb.Order_ReportClient //establish common pointer so we can set Stream once it is created
-	toLeaderMu := sync.Mutex{}
+	var toLeaderStream *pb.Order_ForwardClient //establish common pointer so we can set Stream once it is created
+	toLeaderMu := sync.RWMutex{}
 
 	rc := &raftNode{
 		proposeC:       proposeC,
@@ -102,7 +103,8 @@ func newRaftNode(id int, peers []string, join bool, getSnapshot func() ([]byte, 
 		commitC:        commitC,
 		errorC:         errorC,
 		toLeaderStream: toLeaderStream,
-		toLeaderMu:     &toLeaderMu,
+		isLeader:       false,
+		leaderMu:       &toLeaderMu,
 		id:             id,
 		peers:          peers,
 		join:           join,
@@ -119,7 +121,7 @@ func newRaftNode(id int, peers []string, join bool, getSnapshot func() ([]byte, 
 		// rest of structure populated after WAL replay
 	}
 	go rc.startRaft()
-	return proposeC, commitC, errorC, rc.snapshotterReady, toLeaderStream, &toLeaderMu
+	return proposeC, commitC, errorC, rc.snapshotterReady, toLeaderStream, &rc.isLeader, &toLeaderMu
 }
 
 // Add node to peer list
@@ -517,8 +519,8 @@ func (rc *raftNode) leaderUpdate(newLeader uint64) {
 		return
 	}
 
-	rc.toLeaderMu.Lock()
-	defer rc.toLeaderMu.Unlock()
+	rc.leaderMu.Lock()
+	defer rc.leaderMu.Unlock()
 
 	// close connection to previous leader
 	if rc.toLeaderConn != nil {
@@ -527,16 +529,18 @@ func (rc *raftNode) leaderUpdate(newLeader uint64) {
 
 	// no need to connect to yourself
 	if rc.leaderId == uint64(rc.id) {
+		rc.isLeader = true
 		return
 	}
 
+	rc.isLeader = false
 	// connect to new leader
 	leaderRaftUrl := rc.peers[newLeader-1] // raft node IDs = index + 1
 	leaderGrpcUrl := strings.Split(leaderRaftUrl, ":")[0] + ":" + string(viper.GetInt("port"))
 
 	rc.toLeaderConn = golib.ConnectTo(leaderGrpcUrl)
 	client := pb.NewOrderClient(rc.toLeaderConn)
-	stream, err := client.Report(context.Background())
+	stream, err := client.Forward(context.Background())
 	if err != nil {
 		panic(err)
 	}

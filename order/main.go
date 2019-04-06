@@ -34,15 +34,17 @@ func Start() {
 	id, peers := getRaftIndexPeerUrls()
 	// TODO: remove hard coded server shard count
 	server := newOrderServer(golib.NewSet(), 2, nil, nil)
-	raftProposeChannel, raftCommitChannel, raftErrorChannel, raftSnapshotter, toLeaderStream, toLeaderMu :=
+	raftProposeChannel, raftCommitChannel, raftErrorChannel, raftSnapshotter, toLeaderStream, isLeader, toLeaderMu :=
 		newRaftNode(id, peers, false, server.getSnapshot)
 	server.raftProposeChannel = raftProposeChannel
 	server.raftSnapshotter = <-raftSnapshotter
+	server.toLeaderStream = toLeaderStream
+	server.leaderMu = toLeaderMu
+	server.isLeader = isLeader
 
 	messaging.RegisterOrderServer(grpcServer, server)
-	go server.respondToDataLayer()
-	//TODO forward messages to leader or commit them if you're the leader
-	go server.listenForRaftCommits(raftCommitChannel, toLeaderStream, toLeaderMu)
+	go server.batchCuts()
+	go server.listenForRaftCommits(raftCommitChannel)
 	go listenForErrors(raftErrorChannel)
 
 	logger.Printf("Order layer server available on port %d\n", viper.Get("port"))

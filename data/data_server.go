@@ -30,6 +30,9 @@ type Record struct {
 	commitResp chan int // Should send back a GSN to be forwarded to client
 }
 
+// Server's view of latest cuts in all servers of the shard
+type ShardCut []int
+
 type dataServer struct {
 	// ID of this data server within a shard
 	replicaID int
@@ -37,6 +40,10 @@ type dataServer struct {
 	replicaCount int
 	// Shard ID
 	shardID int32
+	// Last cut with GSN assigned by ordering layer
+	lastSequencedCut ShardCut
+	// ID of lastSequencedCut
+	lastLogNum int
 	// True if this replica has been finalized
 	isFinalized bool
 	// Stable storage for entries into this shard
@@ -94,15 +101,17 @@ func newDataServer() *dataServer {
 
 	fs := filesystem.New("scalog-db")
 	s := &dataServer{
-		replicaID:     replicaID,
-		replicaCount:  replicaCount,
-		shardID:       shardID,
-		isFinalized:   false,
-		stableStorage: &fs,
-		serverBuffers: make([][]Record, replicaCount),
-		mu:            sync.RWMutex{},
-		shardServers:  shardPods,
-		kubeClient:    clientset,
+		replicaID:        replicaID,
+		replicaCount:     replicaCount,
+		shardID:          shardID,
+		lastSequencedCut: make([]int, replicaCount),
+		lastLogNum:       0,
+		isFinalized:      false,
+		stableStorage:    &fs,
+		serverBuffers:    make([][]Record, replicaCount),
+		mu:               sync.RWMutex{},
+		shardServers:     shardPods,
+		kubeClient:       clientset,
 	}
 	s.setupOrderLayerComunication()
 	return s
@@ -211,8 +220,21 @@ func (server *dataServer) receiveFinalizedCuts(stream om.Order_ReportClient, sen
 		}
 
 		gsn := int(in.StartGlobalSequenceNum)
+		newLogNum := int(in.LogNum)
+
+		//check log num for missing cuts
+		if newLogNum <= server.lastLogNum {
+			logger.Printf("Received older cut: had v%d, received v%d", server.lastLogNum, newLogNum)
+			continue
+		} else if newLogNum > server.lastLogNum+1 {
+			//TODO request ordering layer to send missing cuts
+			logger.Printf("Missing logs between v%d - v%d", server.lastLogNum, newLogNum)
+			continue
+		}
+
+		//update gsn on logs
 		for idx, cut := range in.CommittedCuts {
-			offset := int(in.Offsets[idx])
+			offset := server.lastSequencedCut[idx]
 			numLogs := int(cut) - offset
 
 			for i := 0; i < numLogs; i++ {
@@ -225,6 +247,12 @@ func (server *dataServer) receiveFinalizedCuts(stream om.Order_ReportClient, sen
 				gsn++
 			}
 		}
+
+		//update stored cut & log number
+		for i := 0; i < server.replicaCount; i++ {
+			server.lastSequencedCut[i] = int(in.CommittedCuts[i])
+		}
+		server.lastLogNum = newLogNum
 	}
 }
 
