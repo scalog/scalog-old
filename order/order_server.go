@@ -236,7 +236,7 @@ func (server *orderServer) reportResponseRoutine(stream pb.Order_ReportServer, r
 Saves a cut received from the data layer into contested cuts.
 */
 func (server *orderServer) saveTentativeCut(req *pb.ReportRequest) {
-	cut := make(ShardCut, server.numServersPerShard, server.numServersPerShard)
+	cut := make(ShardCut, server.numServersPerShard)
 	for i := 0; i < len(cut); i++ {
 		cut[i] = int(req.TentativeCut[i])
 	}
