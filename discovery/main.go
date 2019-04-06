@@ -43,11 +43,10 @@ func (ds *discoveryServer) DiscoverServers(ctx context.Context, req *rpc.Discove
 	serviceIPs := make([]string, len(services.Items))
 	for i, service := range services.Items {
 		// We assume that each one of these services only has one external IP
-		var externalIPs []string
 		if len(service.Spec.ExternalIPs) == 0 {
 			return nil, errors.New("External data service does not have an external IP")
 		}
-		serviceIPs[i] = externalIPs[0]
+		serviceIPs[i] = service.Spec.ExternalIPs[0]
 	}
 
 	resp := rpc.DiscoverResponse{
