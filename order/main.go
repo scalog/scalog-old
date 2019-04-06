@@ -2,11 +2,12 @@ package order
 
 import (
 	"fmt"
-	"github.com/scalog/scalog/internal/pkg/golib"
 	"log"
 	"net"
 	"sort"
 	"time"
+
+	"github.com/scalog/scalog/internal/pkg/golib"
 
 	"k8s.io/apimachinery/pkg/types"
 

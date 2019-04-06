@@ -89,8 +89,7 @@ func (server *orderServer) Finalize(ctx context.Context, req *pb.FinalizeRequest
 	if server.rc.isLeader {
 		server.rc.leaderMu.RUnlock()
 		for _, shardID := range req.ShardIDs {
-			server.notifyFinalizedShard(int(shardID))
-			server.deleteShard(int(shardID))
+			server.finalizationResponseChannels[shardID] = make(chan bool)
 		}
 	} else {
 		//drop the message if no leader exists
@@ -106,7 +105,10 @@ func (server *orderServer) Finalize(ctx context.Context, req *pb.FinalizeRequest
 		server.rc.leaderMu.RUnlock()
 	}
 
-	//TODO only respond once leader sends committedCut without this shard?
-	resp := &pb.FinalizeResponse{}
-	return resp, nil
+	// Wait for raft to commit the finalization requests before responding
+	for _, shardID := range req.ShardIDs {
+		<-server.finalizationResponseChannels[shardID]
+		delete(server.finalizationResponseChannels, shardID)
+	}
+	return &pb.FinalizeResponse{}, nil
 }

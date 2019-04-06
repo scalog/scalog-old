@@ -29,15 +29,20 @@ type Deltas CommittedGlobalCut
 // Map<Shard ID, Channels to write responses to for each server in shard>
 type ResponseChannels map[int][]chan pb.ReportResponse
 
+// Map<Shard ID, Channels to write responses to when a shard finalization
+// request has been committed>
+type FinalizationResponseChannels map[int32]chan bool
+
 type orderServer struct {
-	committedGlobalCut   CommittedGlobalCut
-	contestedGlobalCut   ContestedGlobalCut
-	globalSequenceNum    int
+	committedGlobalCut           CommittedGlobalCut
+	contestedGlobalCut           ContestedGlobalCut
+	globalSequenceNum            int
 	logNum               int // # of batch since inception
 	shardIds             *golib.Set
 	numServersPerShard   int
 	mu                   sync.RWMutex
-	dataResponseChannels ResponseChannels
+	finalizationResponseChannels FinalizationResponseChannels
+	dataResponseChannels         ResponseChannels
 	rc                   *raftNode
 }
 
@@ -52,14 +57,15 @@ type orderServerState struct {
 
 func newOrderServer(shardIds *golib.Set, numServersPerShard int) *orderServer {
 	return &orderServer{
-		committedGlobalCut:   initCommittedCut(shardIds, numServersPerShard),
-		contestedGlobalCut:   initContestedCut(shardIds, numServersPerShard),
-		globalSequenceNum:    0,
+		committedGlobalCut:           initCommittedCut(shardIds, numServersPerShard),
+		contestedGlobalCut:           initContestedCut(shardIds, numServersPerShard),
+		globalSequenceNum:            0,
 		logNum:               1,
 		shardIds:             shardIds,
 		numServersPerShard:   numServersPerShard,
 		mu:                   sync.RWMutex{},
 		dataResponseChannels: initResponseChannels(shardIds, numServersPerShard),
+		finalizationResponseChannels: make(FinalizationResponseChannels),
 	}
 }
 
@@ -137,6 +143,10 @@ func (server *orderServer) notifyFinalizedShard(shardID int) {
 
 	server.mu.Lock()
 	defer server.mu.Unlock()
+	// Do nothing if this shardID doesn't exist
+	if !server.shardIds.Contains(shardID) {
+		return
+	}
 	for i := 0; i < server.numServersPerShard; i++ {
 		// Notify the relevant data replicas that they have been finalized
 		server.dataResponseChannels[shardID][i] <- terminationMessage

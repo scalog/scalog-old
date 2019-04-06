@@ -54,13 +54,17 @@ func init() {
 	viper.BindPFlag("raftNodeID", orderCmd.PersistentFlags().Lookup("raftNodeID"))
 
 	// Raft must listen on a port different than the one we serve gRPC requests on
-	viper.SetDefault("raftPort", 1337)
+	viper.SetDefault("raftPort", 10088)
+	viper.SetDefault("raft_cluster_size", 2)
+	viper.SetDefault("replica_count", 2)
 
 	viper.BindEnv("name")
 	viper.BindEnv("namespace")
 	viper.BindEnv("pod_ip")
 	// The number of replicas running in the ordering layer
 	viper.BindEnv("raft_cluster_size")
+	// The number of replicas in each data shard
+	viper.BindEnv("replica_count")
 	// UID of this pod
 	viper.BindEnv("uid")
 }
