@@ -3,7 +3,6 @@ package order
 import (
 	"encoding/json"
 	"fmt"
-	"go.etcd.io/etcd/raft/raftpb"
 	"math"
 	"sync"
 	"time"
@@ -39,13 +38,7 @@ type orderServer struct {
 	numServersPerShard   int
 	mu                   sync.RWMutex
 	dataResponseChannels ResponseChannels
-	raftProposeChannel   chan<- string
-	raftSnapshotter      *snap.Snapshotter
-
-	//Raft leader communication
-	toLeaderStream *pb.Order_ForwardClient
-	leaderMu       *sync.RWMutex
-	isLeader       *bool
+	rc                   *raftNode
 }
 
 // Fields in orderServer necessary for state replication. Used in Raft.
@@ -57,7 +50,7 @@ type orderServerState struct {
 	shardIds           *golib.Set
 }
 
-func newOrderServer(shardIds *golib.Set, numServersPerShard int, raftProposeChannel chan<- string, raftSnapshotter *snap.Snapshotter) *orderServer {
+func newOrderServer(shardIds *golib.Set, numServersPerShard int) *orderServer {
 	return &orderServer{
 		committedGlobalCut:   initCommittedCut(shardIds, numServersPerShard),
 		contestedGlobalCut:   initContestedCut(shardIds, numServersPerShard),
@@ -67,8 +60,6 @@ func newOrderServer(shardIds *golib.Set, numServersPerShard int, raftProposeChan
 		numServersPerShard:   numServersPerShard,
 		mu:                   sync.RWMutex{},
 		dataResponseChannels: initResponseChannels(shardIds, numServersPerShard),
-		raftProposeChannel:   raftProposeChannel,
-		raftSnapshotter:      raftSnapshotter,
 	}
 }
 
@@ -251,12 +242,12 @@ func (server *orderServer) batchCuts() {
 	ticker := time.NewTicker(100 * time.Microsecond) // todo remove hard-coded interval
 	for range ticker.C {
 		//do nothing if you're not the leader
-		server.leaderMu.RLock()
-		if !*server.isLeader {
-			server.leaderMu.RUnlock()
+		server.rc.leaderMu.RLock()
+		if !server.rc.isLeader {
+			server.rc.leaderMu.RUnlock()
 			continue
 		}
-		server.leaderMu.RUnlock()
+		server.rc.leaderMu.RUnlock()
 
 		//merge cuts
 		server.mu.Lock()
@@ -271,7 +262,7 @@ func (server *orderServer) batchCuts() {
 		if err != nil {
 			logger.Panicf("Could not marshal data layer message")
 		}
-		server.raftProposeChannel <- string(marshalBytes)
+		server.rc.proposeC <- string(marshalBytes)
 	}
 }
 
@@ -320,12 +311,12 @@ func (server *orderServer) loadBatchCut(res *pb.ForwardResponse) {
 	server.mu.Unlock()
 
 	//if we're not the leader, make sure Contested cuts are updated with Committed cuts
-	server.leaderMu.RLock()
-	if *server.isLeader {
-		server.leaderMu.RUnlock()
+	server.rc.leaderMu.RLock()
+	if server.rc.isLeader {
+		server.rc.leaderMu.RUnlock()
 		return
 	}
-	server.leaderMu.RUnlock()
+	server.rc.leaderMu.RUnlock()
 
 	for shardID, cuts := range server.committedGlobalCut {
 		for i := 0; i < server.numServersPerShard; i++ {
@@ -339,8 +330,8 @@ func (server *orderServer) loadBatchCut(res *pb.ForwardResponse) {
 /**
 Triggered when Raft commits a new message.
 */
-func (server *orderServer) listenForRaftCommits(raftCommitChannel <-chan raftpb.Entry) {
-	for entry := range raftCommitChannel {
+func (server *orderServer) listenForRaftCommits() {
+	for entry := range server.rc.commitC {
 		if entry.Data == nil {
 			server.attemptRecoverFromSnapshot()
 			continue
@@ -442,7 +433,7 @@ func (server *orderServer) getSnapshot() ([]byte, error) {
 Use snapshot to reload server state.
 */
 func (server *orderServer) attemptRecoverFromSnapshot() {
-	snapshot, err := server.raftSnapshotter.Load()
+	snapshot, err := server.rc.snapshotter.Load()
 	if err == snap.ErrNoSnapshot {
 		return
 	}

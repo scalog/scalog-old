@@ -27,14 +27,27 @@ func (server *orderServer) Report(stream pb.Order_ReportServer) error {
 			spawned = true
 		}
 
-		server.leaderMu.RLock()
-		if *server.isLeader {
-			server.saveTentativeCut(req)
-		} else {
-			toLeaderStream := *server.toLeaderStream
-			toLeaderStream.Send(req)
+		if req.MinLogNum != 0 && req.MaxLogNum != 0 {
+			continue
 		}
-		server.leaderMu.RUnlock()
+
+		server.rc.leaderMu.RLock()
+		if !server.rc.isLeader {
+			//forward requests to the leader
+			server.rc.toLeaderStream.Send(req)
+			server.rc.leaderMu.RUnlock()
+		} else {
+			server.rc.leaderMu.RUnlock()
+
+			if req.Finalized {
+				// finalize cut
+				server.notifyFinalizedShard(int(req.ShardID))
+				server.deleteShard(int(req.ShardID))
+			} else {
+				// save the new cut info
+				server.saveTentativeCut(req)
+			}
+		}
 	}
 }
 
@@ -52,13 +65,13 @@ func (server *orderServer) Forward(stream pb.Order_ForwardServer) error {
 		}
 
 		// do nothing if you're not the leader
-		server.leaderMu.RLock()
-		if !*server.isLeader {
-			server.leaderMu.RUnlock()
+		server.rc.leaderMu.RLock()
+		if !server.rc.isLeader {
+			server.rc.leaderMu.RUnlock()
 			logger.Printf("Received forwarded message, but is not the leader")
 			continue
 		}
-		server.leaderMu.RUnlock()
+		server.rc.leaderMu.RUnlock()
 
 		server.saveTentativeCut(req)
 	}
@@ -69,24 +82,26 @@ func (server *orderServer) Register(ctx context.Context, req *pb.RegisterRequest
 }
 
 func (server *orderServer) Finalize(ctx context.Context, req *pb.FinalizeRequest) (*pb.FinalizeResponse, error) {
-	server.leaderMu.RLock()
-	defer server.leaderMu.RUnlock()
+	server.rc.leaderMu.RLock()
 
-	if *server.isLeader {
+	if server.rc.isLeader {
+		server.rc.leaderMu.RUnlock()
 		for _, shardID := range req.ShardIDs {
+			server.notifyFinalizedShard(int(shardID))
 			server.deleteShard(int(shardID))
 		}
 	} else {
 		//drop the message if no leader exists
-		if server.toLeaderStream == nil {
+		if server.rc.toLeaderStream == nil {
+			server.rc.leaderMu.RUnlock()
 			logger.Printf("Received finalize request with no Raft leader")
 			return nil, nil
 		}
 
 		for _, shardID := range req.ShardIDs {
-			stream := *server.toLeaderStream
-			stream.Send(&pb.ReportRequest{ShardID: shardID, Finalized: true})
+			server.rc.toLeaderStream.Send(&pb.ReportRequest{ShardID: shardID, Finalized: true})
 		}
+		server.rc.leaderMu.RUnlock()
 	}
 
 	//TODO only respond once leader sends committedCut without this shard?

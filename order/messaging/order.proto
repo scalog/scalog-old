@@ -21,6 +21,9 @@ message ReportRequest {
     repeated int32 tentativeCut = 3;
     // True only if the ordering layer wishes to propose a finalization of this particular shard
     bool finalized = 4;
+    // Non-zero if data server wants to request missing cuts in range [minLogNum, maxLogNum] (inclusive)
+    int32 minLogNum = 5;
+    int32 maxLogNum = 6;
 }
 
 message IntList {
