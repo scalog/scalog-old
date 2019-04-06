@@ -31,19 +31,19 @@ type ResponseChannels map[int][]chan pb.ReportResponse
 
 // Map<Shard ID, Channels to write responses to when a shard finalization
 // request has been committed>
-type FinalizationResponseChannels map[int32]chan bool
+type FinalizationResponseChannels map[int32]chan struct{}
 
 type orderServer struct {
 	committedGlobalCut           CommittedGlobalCut
 	contestedGlobalCut           ContestedGlobalCut
 	globalSequenceNum            int
-	logNum               int // # of batch since inception
-	shardIds             *golib.Set
-	numServersPerShard   int
-	mu                   sync.RWMutex
+	logNum                       int // # of batch since inception
+	shardIds                     *golib.Set
+	numServersPerShard           int
+	mu                           sync.RWMutex
 	finalizationResponseChannels FinalizationResponseChannels
 	dataResponseChannels         ResponseChannels
-	rc                   *raftNode
+	rc                           *raftNode
 }
 
 // Fields in orderServer necessary for state replication. Used in Raft.
@@ -60,11 +60,11 @@ func newOrderServer(shardIds *golib.Set, numServersPerShard int) *orderServer {
 		committedGlobalCut:           initCommittedCut(shardIds, numServersPerShard),
 		contestedGlobalCut:           initContestedCut(shardIds, numServersPerShard),
 		globalSequenceNum:            0,
-		logNum:               1,
-		shardIds:             shardIds,
-		numServersPerShard:   numServersPerShard,
-		mu:                   sync.RWMutex{},
-		dataResponseChannels: initResponseChannels(shardIds, numServersPerShard),
+		logNum:                       1,
+		shardIds:                     shardIds,
+		numServersPerShard:           numServersPerShard,
+		mu:                           sync.RWMutex{},
+		dataResponseChannels:         initResponseChannels(shardIds, numServersPerShard),
 		finalizationResponseChannels: make(FinalizationResponseChannels),
 	}
 }
@@ -133,26 +133,6 @@ func (server *orderServer) mergeContestedCuts() map[int]int {
 	return startGlobalSequenceNums
 }
 
-/*
-Send a finalization message to each replica within [shardID].
-
-This operation acquires a writer lock.
-*/
-func (server *orderServer) notifyFinalizedShard(shardID int) {
-	terminationMessage := pb.ReportResponse{Finalized: true}
-
-	server.mu.Lock()
-	defer server.mu.Unlock()
-	// Do nothing if this shardID doesn't exist
-	if !server.shardIds.Contains(shardID) {
-		return
-	}
-	for i := 0; i < server.numServersPerShard; i++ {
-		// Notify the relevant data replicas that they have been finalized
-		server.dataResponseChannels[shardID][i] <- terminationMessage
-	}
-}
-
 /**
 Adds a shard with the shardID to the ordering layer. Does nothing if the shardID already exists.
 
@@ -182,29 +162,53 @@ func (server *orderServer) addShard(shardID int) {
 }
 
 /**
-Remove the shardID metadata from the ordering layer. Does nothing if the shardID does not exist.
+Notifies the shard that it is being finalized, then removes the shardID metadata.
+Does nothing if the shardID does not exist.
+
+@param committed True if the deletion was committed to Raft. Determines whether or not we'll notify
+	the data layer or operator of this deletion.
+@returns Whether or not this shard existed.
 
 This operation acquires a writer lock.
 */
-func (server *orderServer) deleteShard(shardID int) {
+func (server *orderServer) deleteShard(shardID int, committed bool) bool {
 	//Use read lock to determine if deleting is necessary
 	server.mu.RLock()
 	exists := server.shardIds.Contains(shardID)
 	server.mu.RUnlock()
 	if !exists {
-		return //Do not attempt to delete a shard that was already deleted
+		return false //Do not attempt to delete a shard that was already deleted
 	}
 
 	server.mu.Lock()
 	defer server.mu.Unlock()
+
+	// Delete the shard from cuts. A gesture to signify to Raft log that the shard is deleted.
+	// Meaningless to others unless a cut with this deletion is committed (consensus is reached).
+	delete(server.committedGlobalCut, shardID)
+	delete(server.contestedGlobalCut, shardID)
+
+	if !committed {
+		return true
+	}
+
+	// Cleanup channels used for data layer communication
 	server.shardIds.Remove(shardID)
+
+	// Notify the relevant data replicas that they have been finalized, then close the channels
+	terminationMessage := pb.ReportResponse{Finalized: true}
 	for i := 0; i < server.numServersPerShard; i++ {
-		// Cleanup channels used for data layer communication
+		server.dataResponseChannels[shardID][i] <- terminationMessage
 		close(server.dataResponseChannels[shardID][i])
 	}
 	delete(server.dataResponseChannels, shardID)
-	delete(server.committedGlobalCut, shardID)
-	delete(server.contestedGlobalCut, shardID)
+
+	// Notify blocked channel
+	finalizationC, exists := server.finalizationResponseChannels[int32(shardID)]
+	if exists {
+		close(finalizationC)
+	}
+	return true
 }
 
 ////////////////////// DATA LAYER GRPC FUNCTIONS
@@ -272,7 +276,7 @@ func (server *orderServer) batchCuts() {
 		if err != nil {
 			logger.Panicf("Could not marshal data layer message")
 		}
-		server.rc.proposeC <- string(marshalBytes)
+		server.rc.proposeC <- marshalBytes
 	}
 }
 
@@ -383,7 +387,6 @@ func (server *orderServer) listenForRaftCommits() {
 			var response pb.ReportResponse
 			_, shardExists := req.CommittedCuts[int32(shardID)]
 
-			//finalize shards that we had access to but is no longer in the cut
 			if shardExists {
 				response = pb.ReportResponse{
 					StartGlobalSequenceNum: req.StartGlobalSequenceNums[int32(shardID)],
@@ -393,7 +396,9 @@ func (server *orderServer) listenForRaftCommits() {
 					Finalized:              false,
 				}
 			} else {
-				response = pb.ReportResponse{Finalized: true}
+				//finalize shards that we had listed (in shardIds) but is no longer in the cut
+				server.deleteShard(shardID, true)
+				continue
 			}
 
 			for i := 0; i < server.numServersPerShard; i++ {

@@ -43,8 +43,7 @@ func (server *orderServer) Report(stream pb.Order_ReportServer) error {
 
 			if req.Finalized {
 				// finalize cut
-				server.notifyFinalizedShard(int(req.ShardID))
-				server.deleteShard(int(req.ShardID))
+				server.deleteShard(int(req.ShardID), false)
 			} else {
 				// save the new cut info
 				server.saveTentativeCut(req)
@@ -89,7 +88,13 @@ func (server *orderServer) Finalize(ctx context.Context, req *pb.FinalizeRequest
 	if server.rc.isLeader {
 		server.rc.leaderMu.RUnlock()
 		for _, shardID := range req.ShardIDs {
-			server.finalizationResponseChannels[shardID] = make(chan bool)
+			// remove shard from cuts
+			existed := server.deleteShard(int(shardID), false)
+			if !existed {
+				return &pb.FinalizeResponse{}, nil // quick return if shard didn't exist
+			}
+
+			server.finalizationResponseChannels[shardID] = make(chan struct{})
 		}
 	} else {
 		//drop the message if no leader exists
