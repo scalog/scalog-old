@@ -11,8 +11,6 @@ import (
 
 	"k8s.io/apimachinery/pkg/types"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
 	"github.com/scalog/scalog/internal/pkg/kube"
 	"github.com/scalog/scalog/logger"
 	"github.com/scalog/scalog/order/messaging"
@@ -36,16 +34,13 @@ func Start() {
 
 	id, peers := getRaftIndexPeerUrls()
 	// TODO: remove hard coded server shard count
-	server := newOrderServer(golib.NewSet(), viper.GetInt("replica_count"), nil, nil)
-	raftProposeChannel, raftCommitChannel, raftErrorChannel, raftSnapshotter :=
-		newRaftNode(id, peers, false, server.getSnapshot)
-	server.raftProposeChannel = raftProposeChannel
-	server.raftSnapshotter = <-raftSnapshotter
+	server := newOrderServer(golib.NewSet(), 2)
+	rc := newRaftNode(id, peers, false, server.getSnapshot)
+	server.rc = rc
 
 	messaging.RegisterOrderServer(grpcServer, server)
-	go server.respondToDataLayer()
-	go server.listenForRaftCommits(raftCommitChannel)
-	go listenForErrors(raftErrorChannel)
+	go server.batchCuts()
+	go server.listenForRaftCommits()
 
 	logger.Printf("Order layer server available on port %d\n", viper.Get("port"))
 	//Blocking, must be last step
@@ -67,16 +62,9 @@ func getRaftIndexPeerUrls() (int, []string) {
 		// FOR TESTING. Single raft node
 		return 1, []string{"http://0.0.0.0:9876"}
 	}
-	clientset, err := kube.InitKubernetesClient()
-	if err != nil {
-		logger.Panicf(err.Error())
-	}
 
-	listOptions := metav1.ListOptions{LabelSelector: "app=scalog-order"}
-	pods, err := kube.GetShardPods(clientset, listOptions, viper.GetInt("raft_cluster_size"), viper.GetString("namespace"))
-	if err != nil {
-		logger.Panicf(err.Error())
-	}
+	pods := kube.GetShardPods(kube.InitKubernetesClient(), "app=scalog-order",
+		viper.GetInt("raft_cluster_size"), viper.GetString("namespace"))
 
 	size := len(pods.Items)
 	peers := make([]peerIDAndURL, size)
@@ -106,10 +94,4 @@ func getRaftIndexPeerUrls() (int, []string) {
 	// ID's in raft should be one indexed
 	index++
 	return index, urls
-}
-
-func listenForErrors(errorChannel <-chan error) {
-	for err := range errorChannel {
-		logger.Printf("Raft error: " + err.Error())
-	}
 }

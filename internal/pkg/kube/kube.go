@@ -1,6 +1,7 @@
 package kube
 
 import (
+	"github.com/scalog/scalog/logger"
 	"time"
 
 	v1 "k8s.io/api/core/v1"
@@ -13,18 +14,18 @@ import (
 InitKubernetesClient returns a client for interacting with the
 kubernetes API server.
 */
-func InitKubernetesClient() (*kubernetes.Clientset, error) {
+func InitKubernetesClient() *kubernetes.Clientset {
 	// creates the in-cluster config
 	config, err := rest.InClusterConfig()
 	if err != nil {
-		return nil, err
+		logger.Panicf(err.Error())
 	}
 	// creates the clientset
 	clientset, err := kubernetes.NewForConfig(config)
 	if err != nil {
-		return nil, err
+		logger.Panicf(err.Error())
 	}
-	return clientset, nil
+	return clientset
 }
 
 /*
@@ -43,14 +44,16 @@ func AllPodsAreRunning(pods []v1.Pod) bool {
 /*
 GetShardPods blocks until the specified number of pods have appeared
 */
-func GetShardPods(clientset *kubernetes.Clientset, query metav1.ListOptions, expectedPodCount int, namespace string) (*v1.PodList, error) {
+func GetShardPods(clientset *kubernetes.Clientset, labelSelector string, expectedPodCount int, namespace string) *v1.PodList {
+	query := metav1.ListOptions{LabelSelector: labelSelector}
+
 	for {
 		pods, err := clientset.CoreV1().Pods(namespace).List(query)
 		if err != nil {
-			return nil, err
+			logger.Panicf(err.Error())
 		}
 		if len(pods.Items) == expectedPodCount && AllPodsAreRunning(pods.Items) {
-			return pods, nil
+			return pods
 		}
 		//wait for pods to start up
 		time.Sleep(1000 * time.Millisecond)

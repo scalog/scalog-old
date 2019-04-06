@@ -3,13 +3,14 @@
 
 package messaging
 
-import proto "github.com/golang/protobuf/proto"
-import fmt "fmt"
-import math "math"
-
 import (
-	context "golang.org/x/net/context"
+	context "context"
+	fmt "fmt"
+	proto "github.com/golang/protobuf/proto"
 	grpc "google.golang.org/grpc"
+	codes "google.golang.org/grpc/codes"
+	status "google.golang.org/grpc/status"
+	math "math"
 )
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -21,7 +22,7 @@ var _ = math.Inf
 // is compatible with the proto package it is being compiled against.
 // A compilation error at this line likely means your copy of the
 // proto package needs to be updated.
-const _ = proto.ProtoPackageIsVersion2 // please upgrade the proto package
+const _ = proto.ProtoPackageIsVersion3 // please upgrade the proto package
 
 type AppendRequest struct {
 	Cid                  int32    `protobuf:"varint,1,opt,name=cid,proto3" json:"cid,omitempty"`
@@ -36,16 +37,17 @@ func (m *AppendRequest) Reset()         { *m = AppendRequest{} }
 func (m *AppendRequest) String() string { return proto.CompactTextString(m) }
 func (*AppendRequest) ProtoMessage()    {}
 func (*AppendRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_data_b161ddc57c3945d6, []int{0}
+	return fileDescriptor_d6b6232dab2e58e3, []int{0}
 }
+
 func (m *AppendRequest) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_AppendRequest.Unmarshal(m, b)
 }
 func (m *AppendRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_AppendRequest.Marshal(b, m, deterministic)
 }
-func (dst *AppendRequest) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_AppendRequest.Merge(dst, src)
+func (m *AppendRequest) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_AppendRequest.Merge(m, src)
 }
 func (m *AppendRequest) XXX_Size() int {
 	return xxx_messageInfo_AppendRequest.Size(m)
@@ -89,16 +91,17 @@ func (m *AppendResponse) Reset()         { *m = AppendResponse{} }
 func (m *AppendResponse) String() string { return proto.CompactTextString(m) }
 func (*AppendResponse) ProtoMessage()    {}
 func (*AppendResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_data_b161ddc57c3945d6, []int{1}
+	return fileDescriptor_d6b6232dab2e58e3, []int{1}
 }
+
 func (m *AppendResponse) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_AppendResponse.Unmarshal(m, b)
 }
 func (m *AppendResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_AppendResponse.Marshal(b, m, deterministic)
 }
-func (dst *AppendResponse) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_AppendResponse.Merge(dst, src)
+func (m *AppendResponse) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_AppendResponse.Merge(m, src)
 }
 func (m *AppendResponse) XXX_Size() int {
 	return xxx_messageInfo_AppendResponse.Size(m)
@@ -135,16 +138,17 @@ func (m *ReplicateRequest) Reset()         { *m = ReplicateRequest{} }
 func (m *ReplicateRequest) String() string { return proto.CompactTextString(m) }
 func (*ReplicateRequest) ProtoMessage()    {}
 func (*ReplicateRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_data_b161ddc57c3945d6, []int{2}
+	return fileDescriptor_d6b6232dab2e58e3, []int{2}
 }
+
 func (m *ReplicateRequest) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_ReplicateRequest.Unmarshal(m, b)
 }
 func (m *ReplicateRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_ReplicateRequest.Marshal(b, m, deterministic)
 }
-func (dst *ReplicateRequest) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_ReplicateRequest.Merge(dst, src)
+func (m *ReplicateRequest) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_ReplicateRequest.Merge(m, src)
 }
 func (m *ReplicateRequest) XXX_Size() int {
 	return xxx_messageInfo_ReplicateRequest.Size(m)
@@ -180,16 +184,17 @@ func (m *ReplicateResponse) Reset()         { *m = ReplicateResponse{} }
 func (m *ReplicateResponse) String() string { return proto.CompactTextString(m) }
 func (*ReplicateResponse) ProtoMessage()    {}
 func (*ReplicateResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_data_b161ddc57c3945d6, []int{3}
+	return fileDescriptor_d6b6232dab2e58e3, []int{3}
 }
+
 func (m *ReplicateResponse) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_ReplicateResponse.Unmarshal(m, b)
 }
 func (m *ReplicateResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_ReplicateResponse.Marshal(b, m, deterministic)
 }
-func (dst *ReplicateResponse) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_ReplicateResponse.Merge(dst, src)
+func (m *ReplicateResponse) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_ReplicateResponse.Merge(m, src)
 }
 func (m *ReplicateResponse) XXX_Size() int {
 	return xxx_messageInfo_ReplicateResponse.Size(m)
@@ -211,16 +216,17 @@ func (m *SubscribeRequest) Reset()         { *m = SubscribeRequest{} }
 func (m *SubscribeRequest) String() string { return proto.CompactTextString(m) }
 func (*SubscribeRequest) ProtoMessage()    {}
 func (*SubscribeRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_data_b161ddc57c3945d6, []int{4}
+	return fileDescriptor_d6b6232dab2e58e3, []int{4}
 }
+
 func (m *SubscribeRequest) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_SubscribeRequest.Unmarshal(m, b)
 }
 func (m *SubscribeRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_SubscribeRequest.Marshal(b, m, deterministic)
 }
-func (dst *SubscribeRequest) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_SubscribeRequest.Merge(dst, src)
+func (m *SubscribeRequest) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_SubscribeRequest.Merge(m, src)
 }
 func (m *SubscribeRequest) XXX_Size() int {
 	return xxx_messageInfo_SubscribeRequest.Size(m)
@@ -250,16 +256,17 @@ func (m *SubscribeResponse) Reset()         { *m = SubscribeResponse{} }
 func (m *SubscribeResponse) String() string { return proto.CompactTextString(m) }
 func (*SubscribeResponse) ProtoMessage()    {}
 func (*SubscribeResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_data_b161ddc57c3945d6, []int{5}
+	return fileDescriptor_d6b6232dab2e58e3, []int{5}
 }
+
 func (m *SubscribeResponse) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_SubscribeResponse.Unmarshal(m, b)
 }
 func (m *SubscribeResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_SubscribeResponse.Marshal(b, m, deterministic)
 }
-func (dst *SubscribeResponse) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_SubscribeResponse.Merge(dst, src)
+func (m *SubscribeResponse) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_SubscribeResponse.Merge(m, src)
 }
 func (m *SubscribeResponse) XXX_Size() int {
 	return xxx_messageInfo_SubscribeResponse.Size(m)
@@ -295,16 +302,17 @@ func (m *TrimRequest) Reset()         { *m = TrimRequest{} }
 func (m *TrimRequest) String() string { return proto.CompactTextString(m) }
 func (*TrimRequest) ProtoMessage()    {}
 func (*TrimRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_data_b161ddc57c3945d6, []int{6}
+	return fileDescriptor_d6b6232dab2e58e3, []int{6}
 }
+
 func (m *TrimRequest) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_TrimRequest.Unmarshal(m, b)
 }
 func (m *TrimRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_TrimRequest.Marshal(b, m, deterministic)
 }
-func (dst *TrimRequest) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_TrimRequest.Merge(dst, src)
+func (m *TrimRequest) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_TrimRequest.Merge(m, src)
 }
 func (m *TrimRequest) XXX_Size() int {
 	return xxx_messageInfo_TrimRequest.Size(m)
@@ -332,16 +340,17 @@ func (m *TrimResponse) Reset()         { *m = TrimResponse{} }
 func (m *TrimResponse) String() string { return proto.CompactTextString(m) }
 func (*TrimResponse) ProtoMessage()    {}
 func (*TrimResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_data_b161ddc57c3945d6, []int{7}
+	return fileDescriptor_d6b6232dab2e58e3, []int{7}
 }
+
 func (m *TrimResponse) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_TrimResponse.Unmarshal(m, b)
 }
 func (m *TrimResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_TrimResponse.Marshal(b, m, deterministic)
 }
-func (dst *TrimResponse) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_TrimResponse.Merge(dst, src)
+func (m *TrimResponse) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_TrimResponse.Merge(m, src)
 }
 func (m *TrimResponse) XXX_Size() int {
 	return xxx_messageInfo_TrimResponse.Size(m)
@@ -361,6 +370,33 @@ func init() {
 	proto.RegisterType((*SubscribeResponse)(nil), "messaging.SubscribeResponse")
 	proto.RegisterType((*TrimRequest)(nil), "messaging.TrimRequest")
 	proto.RegisterType((*TrimResponse)(nil), "messaging.TrimResponse")
+}
+
+func init() { proto.RegisterFile("messaging/data.proto", fileDescriptor_d6b6232dab2e58e3) }
+
+var fileDescriptor_d6b6232dab2e58e3 = []byte{
+	// 331 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x74, 0x92, 0x5f, 0x4f, 0xc2, 0x30,
+	0x14, 0xc5, 0x19, 0x20, 0x91, 0xab, 0xe2, 0xa8, 0x06, 0xe7, 0x34, 0x91, 0xf4, 0x09, 0x5f, 0xd0,
+	0xa8, 0x2f, 0x3e, 0x10, 0x63, 0x42, 0x34, 0xea, 0xdb, 0xf4, 0xdd, 0xec, 0x4f, 0xb3, 0x34, 0x91,
+	0xae, 0xf6, 0x16, 0x3f, 0x8c, 0x9f, 0xd6, 0x8c, 0x6d, 0x5d, 0x07, 0xf8, 0xd6, 0x9e, 0xde, 0xf3,
+	0xeb, 0xbd, 0xa7, 0x85, 0xe3, 0x05, 0x43, 0x0c, 0x53, 0x2e, 0xd2, 0xab, 0x24, 0xd4, 0xe1, 0x54,
+	0xaa, 0x4c, 0x67, 0xa4, 0x6f, 0x54, 0xfa, 0x06, 0x07, 0x8f, 0x52, 0x32, 0x91, 0x04, 0xec, 0x7b,
+	0xc9, 0x50, 0x13, 0x17, 0x3a, 0x31, 0x4f, 0x3c, 0x67, 0xec, 0x4c, 0x76, 0x82, 0x7c, 0xb9, 0x52,
+	0x50, 0x78, 0xed, 0x52, 0x41, 0x41, 0x46, 0xd0, 0x53, 0x2c, 0xce, 0x54, 0xe2, 0x75, 0xc6, 0xce,
+	0xa4, 0x1f, 0x94, 0x3b, 0x7a, 0x07, 0x83, 0x0a, 0x86, 0x32, 0x13, 0xc8, 0x2a, 0xaf, 0x53, 0x7b,
+	0x5d, 0xe8, 0xa4, 0x35, 0x2d, 0x45, 0x41, 0x9f, 0xc0, 0x0d, 0x98, 0xfc, 0xe2, 0x71, 0xa8, 0x59,
+	0xd5, 0x85, 0x0f, 0xbb, 0xc8, 0xd4, 0x0f, 0x53, 0x2f, 0xf3, 0xd2, 0x6c, 0xf6, 0xd6, 0xed, 0xed,
+	0xc6, 0xed, 0x47, 0x30, 0xb4, 0x38, 0x45, 0x03, 0x74, 0x06, 0xee, 0xfb, 0x32, 0xc2, 0x58, 0xf1,
+	0xc8, 0xc0, 0x2f, 0xc1, 0xc5, 0x42, 0x93, 0x9a, 0x67, 0xe2, 0x33, 0x35, 0x1d, 0x1e, 0xda, 0xfa,
+	0x33, 0x0a, 0x3a, 0x83, 0xa1, 0x65, 0xaf, 0x87, 0xaa, 0x2d, 0xf9, 0xf2, 0xdf, 0x96, 0x2e, 0x60,
+	0xef, 0x43, 0xf1, 0x85, 0x95, 0x6d, 0xd3, 0x48, 0x07, 0xb0, 0x5f, 0x14, 0x14, 0xe8, 0x9b, 0xdf,
+	0x36, 0x74, 0xe7, 0xa1, 0x0e, 0xc9, 0x03, 0xf4, 0x8a, 0x28, 0x89, 0x37, 0x35, 0xaf, 0x35, 0x6d,
+	0x3c, 0x95, 0x7f, 0xba, 0xe5, 0xa4, 0x1c, 0xbb, 0x45, 0x5e, 0xa1, 0x6f, 0xd2, 0x20, 0x67, 0x56,
+	0xe5, 0x7a, 0xd6, 0xfe, 0xf9, 0xf6, 0xc3, 0x8a, 0x34, 0x71, 0x72, 0x96, 0x49, 0xa1, 0xc1, 0x5a,
+	0x8f, 0xb6, 0xc1, 0xda, 0x08, 0x8e, 0xb6, 0xae, 0x1d, 0x72, 0x0f, 0xdd, 0x7c, 0x62, 0x32, 0xb2,
+	0x2a, 0xad, 0x8c, 0xfc, 0x93, 0x0d, 0xbd, 0x32, 0x47, 0xbd, 0xd5, 0xef, 0xbd, 0xfd, 0x0b, 0x00,
+	0x00, 0xff, 0xff, 0x2d, 0x54, 0x90, 0xb6, 0xd5, 0x02, 0x00, 0x00,
 }
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -481,6 +517,23 @@ type DataServer interface {
 	Trim(context.Context, *TrimRequest) (*TrimResponse, error)
 }
 
+// UnimplementedDataServer can be embedded to have forward compatible implementations.
+type UnimplementedDataServer struct {
+}
+
+func (*UnimplementedDataServer) Append(ctx context.Context, req *AppendRequest) (*AppendResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Append not implemented")
+}
+func (*UnimplementedDataServer) Replicate(srv Data_ReplicateServer) error {
+	return status.Errorf(codes.Unimplemented, "method Replicate not implemented")
+}
+func (*UnimplementedDataServer) Subscribe(req *SubscribeRequest, srv Data_SubscribeServer) error {
+	return status.Errorf(codes.Unimplemented, "method Subscribe not implemented")
+}
+func (*UnimplementedDataServer) Trim(ctx context.Context, req *TrimRequest) (*TrimResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Trim not implemented")
+}
+
 func RegisterDataServer(s *grpc.Server, srv DataServer) {
 	s.RegisterService(&_Data_serviceDesc, srv)
 }
@@ -594,31 +647,4 @@ var _Data_serviceDesc = grpc.ServiceDesc{
 		},
 	},
 	Metadata: "messaging/data.proto",
-}
-
-func init() { proto.RegisterFile("messaging/data.proto", fileDescriptor_data_b161ddc57c3945d6) }
-
-var fileDescriptor_data_b161ddc57c3945d6 = []byte{
-	// 331 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x74, 0x92, 0x5f, 0x4f, 0xc2, 0x30,
-	0x14, 0xc5, 0x19, 0x20, 0x91, 0xab, 0xe2, 0xa8, 0x06, 0xe7, 0x34, 0x91, 0xf4, 0x09, 0x5f, 0xd0,
-	0xa8, 0x2f, 0x3e, 0x10, 0x63, 0x42, 0x34, 0xea, 0xdb, 0xf4, 0xdd, 0xec, 0x4f, 0xb3, 0x34, 0x91,
-	0xae, 0xf6, 0x16, 0x3f, 0x8c, 0x9f, 0xd6, 0x8c, 0x6d, 0x5d, 0x07, 0xf8, 0xd6, 0x9e, 0xde, 0xf3,
-	0xeb, 0xbd, 0xa7, 0x85, 0xe3, 0x05, 0x43, 0x0c, 0x53, 0x2e, 0xd2, 0xab, 0x24, 0xd4, 0xe1, 0x54,
-	0xaa, 0x4c, 0x67, 0xa4, 0x6f, 0x54, 0xfa, 0x06, 0x07, 0x8f, 0x52, 0x32, 0x91, 0x04, 0xec, 0x7b,
-	0xc9, 0x50, 0x13, 0x17, 0x3a, 0x31, 0x4f, 0x3c, 0x67, 0xec, 0x4c, 0x76, 0x82, 0x7c, 0xb9, 0x52,
-	0x50, 0x78, 0xed, 0x52, 0x41, 0x41, 0x46, 0xd0, 0x53, 0x2c, 0xce, 0x54, 0xe2, 0x75, 0xc6, 0xce,
-	0xa4, 0x1f, 0x94, 0x3b, 0x7a, 0x07, 0x83, 0x0a, 0x86, 0x32, 0x13, 0xc8, 0x2a, 0xaf, 0x53, 0x7b,
-	0x5d, 0xe8, 0xa4, 0x35, 0x2d, 0x45, 0x41, 0x9f, 0xc0, 0x0d, 0x98, 0xfc, 0xe2, 0x71, 0xa8, 0x59,
-	0xd5, 0x85, 0x0f, 0xbb, 0xc8, 0xd4, 0x0f, 0x53, 0x2f, 0xf3, 0xd2, 0x6c, 0xf6, 0xd6, 0xed, 0xed,
-	0xc6, 0xed, 0x47, 0x30, 0xb4, 0x38, 0x45, 0x03, 0x74, 0x06, 0xee, 0xfb, 0x32, 0xc2, 0x58, 0xf1,
-	0xc8, 0xc0, 0x2f, 0xc1, 0xc5, 0x42, 0x93, 0x9a, 0x67, 0xe2, 0x33, 0x35, 0x1d, 0x1e, 0xda, 0xfa,
-	0x33, 0x0a, 0x3a, 0x83, 0xa1, 0x65, 0xaf, 0x87, 0xaa, 0x2d, 0xf9, 0xf2, 0xdf, 0x96, 0x2e, 0x60,
-	0xef, 0x43, 0xf1, 0x85, 0x95, 0x6d, 0xd3, 0x48, 0x07, 0xb0, 0x5f, 0x14, 0x14, 0xe8, 0x9b, 0xdf,
-	0x36, 0x74, 0xe7, 0xa1, 0x0e, 0xc9, 0x03, 0xf4, 0x8a, 0x28, 0x89, 0x37, 0x35, 0xaf, 0x35, 0x6d,
-	0x3c, 0x95, 0x7f, 0xba, 0xe5, 0xa4, 0x1c, 0xbb, 0x45, 0x5e, 0xa1, 0x6f, 0xd2, 0x20, 0x67, 0x56,
-	0xe5, 0x7a, 0xd6, 0xfe, 0xf9, 0xf6, 0xc3, 0x8a, 0x34, 0x71, 0x72, 0x96, 0x49, 0xa1, 0xc1, 0x5a,
-	0x8f, 0xb6, 0xc1, 0xda, 0x08, 0x8e, 0xb6, 0xae, 0x1d, 0x72, 0x0f, 0xdd, 0x7c, 0x62, 0x32, 0xb2,
-	0x2a, 0xad, 0x8c, 0xfc, 0x93, 0x0d, 0xbd, 0x32, 0x47, 0xbd, 0xd5, 0xef, 0xbd, 0xfd, 0x0b, 0x00,
-	0x00, 0xff, 0xff, 0x2d, 0x54, 0x90, 0xb6, 0xd5, 0x02, 0x00, 0x00,
 }

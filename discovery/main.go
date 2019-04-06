@@ -57,11 +57,7 @@ func (ds *discoveryServer) DiscoverServers(ctx context.Context, req *rpc.Discove
 }
 
 func newDiscoveryServer() *discoveryServer {
-	clientset, err := kube.InitKubernetesClient()
-	if err != nil {
-		logger.Panicf(err.Error())
-	}
-
+	clientset := kube.InitKubernetesClient()
 	listOptions := metav1.ListOptions{LabelSelector: "type=exposedDataService"}
 	ds := &discoveryServer{
 		client:       clientset,

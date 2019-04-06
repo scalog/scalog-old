@@ -30,6 +30,9 @@ type Record struct {
 	commitResp chan int // Should send back a GSN to be forwarded to client
 }
 
+// Server's view of latest cuts in all servers of the shard
+type ShardCut []int
+
 type dataServer struct {
 	// ID of this data server within a shard
 	replicaID int
@@ -37,6 +40,10 @@ type dataServer struct {
 	replicaCount int
 	// Shard ID
 	shardID int32
+	// Last cut with GSN assigned by ordering layer
+	lastSequencedCut ShardCut
+	// ID of lastSequencedCut
+	lastLogNum int
 	// True if this replica has been finalized
 	isFinalized bool
 	// Stable storage for entries into this shard
@@ -71,17 +78,8 @@ func newDataServer() *dataServer {
 	// Run this only if running within a kubernetes cluster
 	if !viper.GetBool("localRun") {
 		logger.Printf("Server %d searching for other %d servers in %s\n", replicaID, replicaCount, shardName)
-
-		clientset, err := kube.InitKubernetesClient()
-		if err != nil {
-			logger.Panicf(err.Error())
-		}
-
-		listOptions := metav1.ListOptions{LabelSelector: "tier=" + shardName}
-		pods, err := kube.GetShardPods(clientset, listOptions, replicaCount, viper.GetString("namespace"))
-		if err != nil {
-			logger.Panicf(err.Error())
-		}
+		clientset = kube.InitKubernetesClient()
+		pods := kube.GetShardPods(clientset, "tier="+shardName, replicaCount, viper.GetString("namespace"))
 
 		for _, pod := range pods.Items {
 			if pod.Status.PodIP == viper.Get("pod_ip") {
@@ -103,15 +101,17 @@ func newDataServer() *dataServer {
 
 	fs := filesystem.New("scalog-db")
 	s := &dataServer{
-		replicaID:     replicaID,
-		replicaCount:  replicaCount,
-		shardID:       shardID,
-		isFinalized:   false,
-		stableStorage: &fs,
-		serverBuffers: make([][]Record, replicaCount),
-		mu:            sync.RWMutex{},
-		shardServers:  shardPods,
-		kubeClient:    clientset,
+		replicaID:        replicaID,
+		replicaCount:     replicaCount,
+		shardID:          shardID,
+		lastSequencedCut: make([]int, replicaCount),
+		lastLogNum:       0,
+		isFinalized:      false,
+		stableStorage:    &fs,
+		serverBuffers:    make([][]Record, replicaCount),
+		mu:               sync.RWMutex{},
+		shardServers:     shardPods,
+		kubeClient:       clientset,
 	}
 	s.setupOrderLayerComunication()
 	return s
@@ -219,8 +219,27 @@ func (server *dataServer) receiveFinalizedCuts(stream om.Order_ReportClient, sen
 		}
 
 		gsn := int(in.StartGlobalSequenceNum)
+		minLogNum := int(in.MinLogNum)
+		maxLogNum := int(in.MaxLogNum)
+
+		//check log num for missing cuts
+		if minLogNum <= server.lastLogNum {
+			logger.Printf("Received older cut: had v%d, received [%d, %d]", server.lastLogNum, minLogNum, maxLogNum)
+			continue
+		} else if minLogNum > server.lastLogNum+1 {
+			logger.Printf("Missing logs: had v%d, received [%d, %d]", server.lastLogNum, minLogNum, maxLogNum)
+			request := om.ReportRequest{
+				MinLogNum: int32(server.lastLogNum + 1),
+				MaxLogNum: int32(maxLogNum),
+				ShardID:   server.shardID,
+			}
+			stream.Send(&request)
+			continue
+		}
+
+		//update gsn on logs
 		for idx, cut := range in.CommittedCuts {
-			offset := int(in.Offsets[idx])
+			offset := server.lastSequencedCut[idx]
 			numLogs := int(cut) - offset
 
 			for i := 0; i < numLogs; i++ {
@@ -233,25 +252,23 @@ func (server *dataServer) receiveFinalizedCuts(stream om.Order_ReportClient, sen
 				gsn++
 			}
 		}
+
+		//update stored cut & log number
+		for i := 0; i < server.replicaCount; i++ {
+			server.lastSequencedCut[i] = int(in.CommittedCuts[i])
+		}
+		server.lastLogNum = maxLogNum
 	}
 }
 
 func (server *dataServer) setupOrderLayerComunication() {
-	var opts []grpc.DialOption
-	opts = append(opts, grpc.WithInsecure())
-
 	var conn *grpc.ClientConn
-	var err error
 	if viper.GetBool("localRun") {
-		logger.Printf("Utilizing TCP to dial Ordering Layer at 0.0.0.0:1337")
-		conn, err = grpc.Dial("0.0.0.0:1337", opts...) // For local testing
+		conn = golib.ConnectTo("0.0.0.0:1337")
 	} else {
-		logger.Printf("Utilizing DNS to dial Ordering Layer at scalog-order-service.scalog:" + viper.GetString("orderPort"))
-		conn, err = grpc.Dial("dns:///scalog-order-service.scalog:"+viper.GetString("orderPort"), opts...)
+		conn = golib.ConnectTo("dns:///scalog-order-service.scalog:" + viper.GetString("orderPort"))
 	}
-	if err != nil {
-		panic(err)
-	}
+
 	client := om.NewOrderClient(conn)
 	stream, err := client.Report(context.Background())
 	if err != nil {
@@ -265,27 +282,20 @@ func (server *dataServer) setupOrderLayerComunication() {
 
 // Forms a channel which writes to a specific pod on a specific pod ip
 func createIntershardPodConnection(podIP string, ch chan messaging.ReplicateRequest) {
-	var opts []grpc.DialOption
-	// TODO: Use a secured connection
-	opts = append(opts, grpc.WithInsecure())
-
-	logger.Printf(fmt.Sprintf("Dialing %s:%s", podIP, viper.GetString("port")))
-	ticker := time.NewTicker(100 * time.Millisecond)
 	connChannel := make(chan messaging.Data_ReplicateClient)
 
 	go func() {
+		ticker := time.NewTicker(100 * time.Millisecond)
+		defer ticker.Stop()
+
 		for range ticker.C {
 			var conn *grpc.ClientConn
-			var err error
 			if viper.GetBool("localRun") {
-				conn, err = grpc.Dial(podIP, opts...)
+				conn = golib.ConnectTo(podIP)
 			} else {
-				conn, err = grpc.Dial(podIP+":"+viper.GetString("port"), opts...)
+				conn = golib.ConnectTo(podIP + ":" + viper.GetString("port"))
 			}
-			if err != nil {
-				logger.Printf(err.Error())
-				continue
-			}
+
 			client := messaging.NewDataClient(conn)
 			stream, err := client.Replicate(context.Background())
 			if err != nil {
@@ -298,7 +308,6 @@ func createIntershardPodConnection(podIP string, ch chan messaging.ReplicateRequ
 	}()
 
 	stream := <-connChannel
-	ticker.Stop()
 	logger.Printf("Successfully set up channels with " + podIP)
 
 	for req := range ch {
