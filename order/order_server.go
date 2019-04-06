@@ -209,37 +209,6 @@ func (server *orderServer) deleteShard(shardID int) {
 ////////////////////// DATA LAYER GRPC FUNCTIONS
 
 /**
-Periodically merge contested cuts and broadcast.
-*/
-func (server *orderServer) batchCuts() {
-	ticker := time.NewTicker(100 * time.Microsecond) // todo remove hard-coded interval
-	for range ticker.C {
-		//do nothing if you're not the leader
-		server.leaderMu.RLock()
-		if !*server.isLeader {
-			server.leaderMu.RUnlock()
-			continue
-		}
-		server.leaderMu.RUnlock()
-
-		//merge cuts
-		server.mu.Lock()
-		startGlobalSequenceNums := server.mergeContestedCuts()
-		server.logNum += 1
-		batchedCuts := createBatchCutResponse(startGlobalSequenceNums, server.committedGlobalCut,
-			server.logNum, server.globalSequenceNum)
-		server.mu.Unlock()
-
-		//propose cuts to raft
-		marshalBytes, err := proto.Marshal(batchedCuts)
-		if err != nil {
-			logger.Panicf("Could not marshal data layer message")
-		}
-		server.raftProposeChannel <- string(marshalBytes)
-	}
-}
-
-/**
 Reports final cuts to the data layer periodically. Reads from ResponseChannels and feeds into the stream.
 */
 func (server *orderServer) reportResponseRoutine(stream pb.Order_ReportServer, req *pb.ReportRequest) {
@@ -273,6 +242,37 @@ func (server *orderServer) saveTentativeCut(req *pb.ReportRequest) {
 		server.contestedGlobalCut[int(req.ShardID)][int(req.ReplicaID)][i] = golib.Max(curr, cut[i])
 	}
 	server.mu.Unlock()
+}
+
+/**
+Periodically merge contested cuts and broadcast.
+*/
+func (server *orderServer) batchCuts() {
+	ticker := time.NewTicker(100 * time.Microsecond) // todo remove hard-coded interval
+	for range ticker.C {
+		//do nothing if you're not the leader
+		server.leaderMu.RLock()
+		if !*server.isLeader {
+			server.leaderMu.RUnlock()
+			continue
+		}
+		server.leaderMu.RUnlock()
+
+		//merge cuts
+		server.mu.Lock()
+		startGlobalSequenceNums := server.mergeContestedCuts()
+		server.logNum += 1
+		batchedCuts := createBatchCutResponse(startGlobalSequenceNums, server.committedGlobalCut,
+			server.logNum, server.globalSequenceNum)
+		server.mu.Unlock()
+
+		//propose cuts to raft
+		marshalBytes, err := proto.Marshal(batchedCuts)
+		if err != nil {
+			logger.Panicf("Could not marshal data layer message")
+		}
+		server.raftProposeChannel <- string(marshalBytes)
+	}
 }
 
 /**
@@ -337,6 +337,52 @@ func (server *orderServer) loadBatchCut(res *pb.ForwardResponse) {
 ////////////////////// RAFT FUNCTIONS
 
 /**
+Triggered when Raft commits a new message.
+*/
+func (server *orderServer) listenForRaftCommits(raftCommitChannel <-chan raftpb.Entry) {
+	for entry := range raftCommitChannel {
+		if entry.Data == nil {
+			server.attemptRecoverFromSnapshot()
+			continue
+		}
+
+		req := &pb.ForwardResponse{}
+		if err := proto.Unmarshal(entry.Data, req); err != nil {
+			logger.Panicf("Could not unmarshal raft commit message")
+		}
+
+		//respond with committed cut
+		for shardID := range server.shardIds.Iterable() {
+			var response pb.ReportResponse
+			_, shardExists := req.CommittedCuts[int32(shardID)]
+
+			//finalize shards that we had access to but is no longer in the cut
+			if shardExists {
+				response = pb.ReportResponse{
+					StartGlobalSequenceNum: req.StartGlobalSequenceNums[int32(shardID)],
+					CommittedCuts:          req.CommittedCuts[int32(shardID)].List,
+					MinLogNum:              int32(server.logNum),
+					MaxLogNum:              int32(entry.Index),
+					Finalized:              false,
+				}
+			} else {
+				response = pb.ReportResponse{Finalized: true}
+			}
+
+			for i := 0; i < server.numServersPerShard; i++ {
+				server.dataResponseChannels[shardID][i] <- response
+			}
+		}
+
+		// set the new state
+		server.mu.Lock()
+		server.logNum = int(entry.Index) + 1
+		server.mu.Unlock()
+		server.loadBatchCut(req)
+	}
+}
+
+/**
 Extracts all variables necessary in state replication in orderServer.
 */
 func (server *orderServer) getState() orderServerState {
@@ -390,52 +436,6 @@ Returns all stored data.
 */
 func (server *orderServer) getSnapshot() ([]byte, error) {
 	return json.Marshal(server.getState())
-}
-
-/**
-Triggered when Raft commits a new message.
-*/
-func (server *orderServer) listenForRaftCommits(raftCommitChannel <-chan raftpb.Entry) {
-	for entry := range raftCommitChannel {
-		if entry.Data == nil {
-			server.attemptRecoverFromSnapshot()
-			continue
-		}
-
-		req := &pb.ForwardResponse{}
-		if err := proto.Unmarshal(entry.Data, req); err != nil {
-			logger.Panicf("Could not unmarshal raft commit message")
-		}
-
-		//respond with committed cut
-		for shardID := range server.shardIds.Iterable() {
-			var response pb.ReportResponse
-			_, shardExists := req.CommittedCuts[int32(shardID)]
-
-			//finalize shards that we had access to but is no longer in the cut
-			if shardExists {
-				response = pb.ReportResponse{
-					StartGlobalSequenceNum: req.StartGlobalSequenceNums[int32(shardID)],
-					CommittedCuts:          req.CommittedCuts[int32(shardID)].List,
-					MinLogNum:              int32(server.logNum),
-					MaxLogNum:              int32(entry.Index),
-					Finalized:              false,
-				}
-			} else {
-				response = pb.ReportResponse{Finalized: true}
-			}
-
-			for i := 0; i < server.numServersPerShard; i++ {
-				server.dataResponseChannels[shardID][i] <- response
-			}
-		}
-
-		// set the new state
-		server.mu.Lock()
-		server.logNum = int(entry.Index) + 1
-		server.mu.Unlock()
-		server.loadBatchCut(req)
-	}
 }
 
 /**
