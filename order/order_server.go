@@ -3,6 +3,7 @@ package order
 import (
 	"encoding/json"
 	"fmt"
+	"go.etcd.io/etcd/raft/raftpb"
 	"math"
 	"sync"
 	"time"
@@ -61,7 +62,7 @@ func newOrderServer(shardIds *golib.Set, numServersPerShard int, raftProposeChan
 		committedGlobalCut:   initCommittedCut(shardIds, numServersPerShard),
 		contestedGlobalCut:   initContestedCut(shardIds, numServersPerShard),
 		globalSequenceNum:    0,
-		logNum:               0,
+		logNum:               1,
 		shardIds:             shardIds,
 		numServersPerShard:   numServersPerShard,
 		mu:                   sync.RWMutex{},
@@ -295,7 +296,6 @@ func createBatchCutResponse(startGlobalSequenceNums map[int]int, committedCuts C
 	return &pb.ForwardResponse{
 		StartGlobalSequenceNums: startGlobalSequenceNums32,
 		CommittedCuts:           committedCuts32,
-		LogNum:                  int32(logNum),
 		StartGlobalSequenceNum:  int32(globalSequenceNum),
 	}
 }
@@ -316,7 +316,6 @@ func (server *orderServer) loadBatchCut(res *pb.ForwardResponse) {
 
 	server.mu.Lock()
 	server.committedGlobalCut = committedCuts
-	server.logNum = int(res.LogNum)
 	server.globalSequenceNum = int(res.StartGlobalSequenceNum)
 	server.mu.Unlock()
 
@@ -396,15 +395,15 @@ func (server *orderServer) getSnapshot() ([]byte, error) {
 /**
 Triggered when Raft commits a new message.
 */
-func (server *orderServer) listenForRaftCommits(raftCommitChannel <-chan *string) {
-	for requestString := range raftCommitChannel {
-		if requestString == nil {
+func (server *orderServer) listenForRaftCommits(raftCommitChannel <-chan raftpb.Entry) {
+	for entry := range raftCommitChannel {
+		if entry.Data == nil {
 			server.attemptRecoverFromSnapshot()
 			continue
 		}
 
 		req := &pb.ForwardResponse{}
-		if err := proto.Unmarshal([]byte(*requestString), req); err != nil {
+		if err := proto.Unmarshal(entry.Data, req); err != nil {
 			logger.Panicf("Could not unmarshal raft commit message")
 		}
 
@@ -418,7 +417,8 @@ func (server *orderServer) listenForRaftCommits(raftCommitChannel <-chan *string
 				response = pb.ReportResponse{
 					StartGlobalSequenceNum: req.StartGlobalSequenceNums[int32(shardID)],
 					CommittedCuts:          req.CommittedCuts[int32(shardID)].List,
-					LogNum:                 req.LogNum,
+					MinLogNum:              int32(server.logNum),
+					MaxLogNum:              int32(entry.Index),
 					Finalized:              false,
 				}
 			} else {
@@ -431,6 +431,9 @@ func (server *orderServer) listenForRaftCommits(raftCommitChannel <-chan *string
 		}
 
 		// set the new state
+		server.mu.Lock()
+		server.logNum = int(entry.Index) + 1
+		server.mu.Unlock()
 		server.loadBatchCut(req)
 	}
 }

@@ -220,15 +220,16 @@ func (server *dataServer) receiveFinalizedCuts(stream om.Order_ReportClient, sen
 		}
 
 		gsn := int(in.StartGlobalSequenceNum)
-		newLogNum := int(in.LogNum)
+		minLogNum := int(in.MinLogNum)
+		maxLogNum := int(in.MaxLogNum)
 
 		//check log num for missing cuts
-		if newLogNum <= server.lastLogNum {
-			logger.Printf("Received older cut: had v%d, received v%d", server.lastLogNum, newLogNum)
+		if minLogNum <= server.lastLogNum {
+			logger.Printf("Received older cut: had v%d, received [%d, %d]", server.lastLogNum, minLogNum, maxLogNum)
 			continue
-		} else if newLogNum > server.lastLogNum+1 {
+		} else if minLogNum > server.lastLogNum+1 {
 			//TODO request ordering layer to send missing cuts
-			logger.Printf("Missing logs between v%d - v%d", server.lastLogNum, newLogNum)
+			logger.Printf("Missing logs: had v%d, received [%d, %d]", server.lastLogNum, minLogNum, maxLogNum)
 			continue
 		}
 
@@ -252,7 +253,7 @@ func (server *dataServer) receiveFinalizedCuts(stream om.Order_ReportClient, sen
 		for i := 0; i < server.replicaCount; i++ {
 			server.lastSequencedCut[i] = int(in.CommittedCuts[i])
 		}
-		server.lastLogNum = newLogNum
+		server.lastLogNum = maxLogNum
 	}
 }
 

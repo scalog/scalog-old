@@ -46,7 +46,7 @@ import (
 type raftNode struct {
 	proposeC    <-chan string          // proposed messages (k,v)
 	confChangeC chan raftpb.ConfChange // proposed cluster config changes
-	commitC     chan<- *string         // entries committed to log (k,v)
+	commitC     chan<- raftpb.Entry    // entries committed to log (k,v)
 	errorC      chan<- error           // errors from raft session
 
 	toLeaderStream *pb.Order_ForwardClient // stream open to current leader. May be nil
@@ -89,10 +89,10 @@ var defaultSnapshotCount uint64 = 10000
 // provided the proposal channel. All log entries are replayed over the
 // commit channel, followed by a nil message (to indicate the channel is
 // current), then new log entries. To shutdown, close proposeC and read errorC.
-func newRaftNode(id int, peers []string, join bool, getSnapshot func() ([]byte, error)) (chan<- string, <-chan *string, <-chan error, <-chan *snap.Snapshotter, *pb.Order_ForwardClient, *bool, *sync.RWMutex) {
+func newRaftNode(id int, peers []string, join bool, getSnapshot func() ([]byte, error)) (chan<- string, <-chan raftpb.Entry, <-chan error, <-chan *snap.Snapshotter, *pb.Order_ForwardClient, *bool, *sync.RWMutex) {
 
 	proposeC := make(chan string)
-	commitC := make(chan *string)
+	commitC := make(chan raftpb.Entry)
 	errorC := make(chan error)
 	var toLeaderStream *pb.Order_ForwardClient //establish common pointer so we can set Stream once it is created
 	toLeaderMu := sync.RWMutex{}
@@ -182,9 +182,8 @@ func (rc *raftNode) publishEntries(ents []raftpb.Entry) bool {
 				// ignore empty messages
 				break
 			}
-			s := string(ents[i].Data)
 			select {
-			case rc.commitC <- &s:
+			case rc.commitC <- ents[i]:
 			case <-rc.stopc:
 				return false
 			}
