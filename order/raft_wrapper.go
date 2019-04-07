@@ -16,19 +16,16 @@ package order
 import (
 	"context"
 	"fmt"
-	"github.com/scalog/scalog/internal/pkg/golib"
-	"github.com/spf13/viper"
-	"google.golang.org/grpc"
 	"log"
 	"net/http"
 	"net/url"
 	"os"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
-	pb "github.com/scalog/scalog/order/messaging"
+	"github.com/scalog/scalog/internal/pkg/golib"
+
 	"go.etcd.io/etcd/etcdserver/api/rafthttp"
 	"go.etcd.io/etcd/etcdserver/api/snap"
 	stats "go.etcd.io/etcd/etcdserver/api/v2stats"
@@ -49,11 +46,6 @@ type raftNode struct {
 	commitC     chan *raftpb.Entry     // entries committed to log (k,v)
 	errorC      chan<- error           // errors from raft session
 
-	toLeaderStream pb.Order_ForwardClient // stream open to current leader. May be nil
-	toLeaderConn   *grpc.ClientConn       // connection open to current leader. May be nil. Don't use outside this class
-	isLeader       bool
-	leaderMu       sync.RWMutex // must acquire before operating on toLeaderStream or isLeader
-
 	id          int      // client ID for raft session
 	peers       []string // raft peer URLs
 	join        bool     // node is joining an existing cluster
@@ -61,7 +53,9 @@ type raftNode struct {
 	snapdir     string   // path to snapshot directory
 	getSnapshot func() ([]byte, error)
 	lastIndex   uint64 // index of log at start
-	leaderId    uint64 // ID of leader; if this changes, reestablish leader channels
+
+	leaderID uint64       // ID of leader. If we are the leader, we should periodically send out batch proposals
+	leaderMu sync.RWMutex // must acquire before operating on toLeaderStream or isLeader
 
 	confState     raftpb.ConfState
 	snapshotIndex uint64
@@ -100,15 +94,14 @@ func newRaftNode(id int, peers []string, join bool, getSnapshot func() ([]byte, 
 		confChangeC: make(chan raftpb.ConfChange),
 		commitC:     commitC,
 		errorC:      errorC,
-		isLeader:    false,
 		leaderMu:    sync.RWMutex{},
 		id:          id,
 		peers:       peers,
 		join:        join,
-		waldir:      fmt.Sprintf("raftexample-%d", id),
-		snapdir:     fmt.Sprintf("raftexample-%d-snap", id),
+		waldir:      fmt.Sprintf("scalograft-%d", id),
+		snapdir:     fmt.Sprintf("scalograft-%d-snap", id),
 		getSnapshot: getSnapshot,
-		leaderId:    raft.None,
+		leaderID:    raft.None,
 		snapCount:   defaultSnapshotCount,
 		stopc:       make(chan struct{}),
 		httpstopc:   make(chan struct{}),
@@ -468,6 +461,7 @@ func (rc *raftNode) serveChannels() {
 
 		// store raft entries to wal, then publish over commit channel
 		case rd := <-rc.node.Ready():
+			rc.leaderUpdate(rd.SoftState)
 			rc.wal.Save(rd.HardState, rd.Entries)
 			if !raft.IsEmptySnap(rd.Snapshot) {
 				rc.saveSnap(rd.Snapshot)
@@ -482,7 +476,6 @@ func (rc *raftNode) serveChannels() {
 			}
 			rc.maybeTriggerSnapshot()
 			rc.node.Advance()
-			rc.leaderUpdate(rd.Lead)
 
 		case err := <-rc.transport.ErrorC:
 			rc.writeError(err)
@@ -514,43 +507,15 @@ func (rc *raftNode) serveRaft() {
 	close(rc.httpdonec)
 }
 
-/**
-Upon knowing of a new leader's ID:
-1. Do nothing if the leader is the same as before
-2. Close connections to previous leader
-3. If leader is not yourself, open connections to the new leader
-*/
-func (rc *raftNode) leaderUpdate(newLeader uint64) {
-	if rc.leaderId == newLeader {
-		return
+func (rc *raftNode) leaderUpdate(softstate *raft.SoftState) {
+	if softstate != nil {
+		newLeader := softstate.Lead
+		if newLeader != rc.leaderID {
+			rc.leaderMu.Lock()
+			rc.leaderID = newLeader
+			rc.leaderMu.Unlock()
+		}
 	}
-
-	rc.leaderMu.Lock()
-	defer rc.leaderMu.Unlock()
-
-	// close connection to previous leader
-	if rc.toLeaderConn != nil {
-		rc.toLeaderConn.Close()
-	}
-
-	// no need to connect to yourself
-	if rc.leaderId == uint64(rc.id) {
-		rc.isLeader = true
-		return
-	}
-
-	rc.isLeader = false
-	// connect to new leader
-	leaderRaftUrl := rc.peers[newLeader-1] // raft node IDs = index + 1
-	leaderGrpcUrl := strings.Split(leaderRaftUrl, ":")[0] + ":" + string(viper.GetInt("port"))
-
-	rc.toLeaderConn = golib.ConnectTo(leaderGrpcUrl)
-	client := pb.NewOrderClient(rc.toLeaderConn)
-	stream, err := client.Forward(context.Background())
-	if err != nil {
-		panic(err)
-	}
-	rc.toLeaderStream = stream
 }
 
 func (rc *raftNode) Process(ctx context.Context, m raftpb.Message) error {

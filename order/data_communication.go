@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 
+	"github.com/golang/protobuf/proto"
 	"github.com/scalog/scalog/logger"
 	pb "github.com/scalog/scalog/order/messaging"
 )
@@ -27,54 +28,18 @@ func (server *orderServer) Report(stream pb.Order_ReportServer) error {
 			spawned = true
 		}
 
-		// Check for missing log requests
-		if req.MinLogNum != 0 && req.MaxLogNum != 0 {
-			server.provideMissingCuts(int(req.MinLogNum), int(req.MaxLogNum), int(req.ShardID), stream)
-			continue
-		}
+		// // Check for missing log requests
+		// if req.MinLogNum != 0 && req.MaxLogNum != 0 {
+		// 	server.provideMissingCuts(int(req.MinLogNum), int(req.MaxLogNum), int(req.ShardID), stream)
+		// 	continue
+		// }
 
-		server.rc.leaderMu.RLock()
-		if !server.rc.isLeader {
-			//forward requests to the leader
-			server.rc.toLeaderStream.Send(req)
-			server.rc.leaderMu.RUnlock()
-		} else {
-			server.rc.leaderMu.RUnlock()
-
-			if req.Finalized {
-				// finalize cut
-				server.deleteShard(int(req.ShardID), false)
-			} else {
-				// save the new cut info
-				server.saveTentativeCut(req)
-			}
-		}
-	}
-}
-
-/**
-Receives messages from other ordering servers. Store if leader, otherwise ignore.
-*/
-func (server *orderServer) Forward(stream pb.Order_ForwardServer) error {
-	for {
-		req, err := stream.Recv()
-		if err == io.EOF {
-			return nil
-		}
+		serializedReq, err := proto.Marshal(req)
 		if err != nil {
-			return err
+			logger.Panicf(err.Error())
 		}
 
-		// do nothing if you're not the leader
-		server.rc.leaderMu.RLock()
-		if !server.rc.isLeader {
-			server.rc.leaderMu.RUnlock()
-			logger.Printf("Received forwarded message, but is not the leader")
-			continue
-		}
-		server.rc.leaderMu.RUnlock()
-
-		server.saveTentativeCut(req)
+		server.rc.proposeC <- serializedReq
 	}
 }
 
@@ -83,37 +48,22 @@ func (server *orderServer) Register(ctx context.Context, req *pb.RegisterRequest
 }
 
 func (server *orderServer) Finalize(ctx context.Context, req *pb.FinalizeRequest) (*pb.FinalizeResponse, error) {
-	server.rc.leaderMu.RLock()
 
-	if server.rc.isLeader {
-		server.rc.leaderMu.RUnlock()
-		for _, shardID := range req.ShardIDs {
-			// remove shard from cuts
-			existed := server.deleteShard(int(shardID), false)
-			if !existed {
-				return &pb.FinalizeResponse{}, nil // quick return if shard didn't exist
-			}
-
-			server.finalizationResponseChannels[shardID] = make(chan struct{})
+	for _, shardID := range req.ShardIDs {
+		proposedShardFinalization := pb.ReportRequest{ShardID: shardID, Finalized: true}
+		raftReq, err := proto.Marshal(&proposedShardFinalization)
+		if err != nil {
+			logger.Printf("Could not marshal finalization request message")
+			return nil, err
 		}
-	} else {
-		//drop the message if no leader exists
-		if server.rc.toLeaderStream == nil {
-			server.rc.leaderMu.RUnlock()
-			logger.Printf("Received finalize request with no Raft leader")
-			return nil, nil
-		}
-
-		for _, shardID := range req.ShardIDs {
-			server.rc.toLeaderStream.Send(&pb.ReportRequest{ShardID: shardID, Finalized: true})
-		}
-		server.rc.leaderMu.RUnlock()
+		server.finalizationResponseChannels[shardID] = make(chan struct{})
+		server.rc.proposeC <- raftReq
 	}
-
 	// Wait for raft to commit the finalization requests before responding
 	for _, shardID := range req.ShardIDs {
 		<-server.finalizationResponseChannels[shardID]
 		delete(server.finalizationResponseChannels, shardID)
 	}
 	return &pb.FinalizeResponse{}, nil
+
 }
