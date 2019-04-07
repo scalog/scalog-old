@@ -54,9 +54,6 @@ type raftNode struct {
 	getSnapshot func() ([]byte, error)
 	lastIndex   uint64 // index of log at start
 
-	leaderID uint64       // ID of leader. If we are the leader, we should periodically send out batch proposals
-	leaderMu sync.RWMutex // must acquire before operating on toLeaderStream or isLeader
-
 	confState     raftpb.ConfState
 	snapshotIndex uint64
 	appliedIndex  uint64
@@ -461,7 +458,6 @@ func (rc *raftNode) serveChannels() {
 
 		// store raft entries to wal, then publish over commit channel
 		case rd := <-rc.node.Ready():
-			rc.leaderUpdate(rd.SoftState)
 			rc.wal.Save(rd.HardState, rd.Entries)
 			if !raft.IsEmptySnap(rd.Snapshot) {
 				rc.saveSnap(rd.Snapshot)
@@ -505,17 +501,6 @@ func (rc *raftNode) serveRaft() {
 		log.Fatalf("raftexample: Failed to serve rafthttp (%v)", err)
 	}
 	close(rc.httpdonec)
-}
-
-func (rc *raftNode) leaderUpdate(softstate *raft.SoftState) {
-	if softstate != nil {
-		newLeader := softstate.Lead
-		if newLeader != rc.leaderID {
-			rc.leaderMu.Lock()
-			rc.leaderID = newLeader
-			rc.leaderMu.Unlock()
-		}
-	}
 }
 
 func (rc *raftNode) Process(ctx context.Context, m raftpb.Message) error {
