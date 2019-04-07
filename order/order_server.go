@@ -15,22 +15,16 @@ import (
 )
 
 // Server's view of latest cuts in all servers of the shard
-type ShardCut []int
+type Cut []int
+
+// All cuts from all replicas within a shard
+type ShardCuts []Cut
 
 // Map<Shard ID, Shard cuts reported by all servers in shard>
-type ContestedGlobalCut map[int][]ShardCut
+type ContestedGlobalCut map[int]ShardCuts
 
 // Map<Shard ID, Cuts in the shard>
-type CommittedGlobalCut map[int]ShardCut
-
-// ReplicaCut is the replica's view of proposed cuts
-type ReplicaCut []int
-
-// ShardState logs the cuts that each replica in a server believes itself to have
-type ShardState []ReplicaCut
-
-// GlobalState maps <shardID, ShardState>. Each commit from raft updates this table.
-type GlobalState map[int]ShardState
+type CommittedGlobalCut map[int]Cut
 
 // Number of new logs appended within the previous time period
 type Deltas CommittedGlobalCut
@@ -43,7 +37,6 @@ type ResponseChannels map[int][]chan pb.ReportResponse
 type FinalizationResponseChannels map[int32]chan struct{}
 
 type orderServer struct {
-	globalState                  GlobalState
 	committedGlobalCut           CommittedGlobalCut
 	contestedGlobalCut           ContestedGlobalCut
 	globalSequenceNum            int
@@ -67,7 +60,6 @@ type orderServerState struct {
 
 func newOrderServer(shardIds *golib.Set, numServersPerShard int) *orderServer {
 	return &orderServer{
-		globalState:                  initGlobalState(shardIds, numServersPerShard),
 		committedGlobalCut:           initCommittedCut(shardIds, numServersPerShard),
 		contestedGlobalCut:           initContestedCut(shardIds, numServersPerShard),
 		globalSequenceNum:            0,
@@ -80,25 +72,10 @@ func newOrderServer(shardIds *golib.Set, numServersPerShard int) *orderServer {
 	}
 }
 
-func initGlobalState(shardIds *golib.Set, numServersPerShard int) GlobalState {
-	gs := make(GlobalState)
-	for shardID := range shardIds.Iterable() {
-		gs[shardID] = make(ShardState, numServersPerShard)
-		for i := 0; i < numServersPerShard; i++ {
-			gs[shardID][i] = make(ReplicaCut, numServersPerShard)
-			for j := 0; j < numServersPerShard; j++ {
-				// Zero records have been logged by each shard at the beginning
-				gs[shardID][i][j] = 0
-			}
-		}
-	}
-	return gs
-}
-
 func initCommittedCut(shardIds *golib.Set, numServersPerShard int) CommittedGlobalCut {
 	cut := make(CommittedGlobalCut)
 	for shardID := range shardIds.Iterable() {
-		cut[shardID] = make(ShardCut, numServersPerShard)
+		cut[shardID] = make(Cut, numServersPerShard)
 	}
 	return cut
 }
@@ -106,9 +83,9 @@ func initCommittedCut(shardIds *golib.Set, numServersPerShard int) CommittedGlob
 func initContestedCut(shardIds *golib.Set, numServersPerShard int) ContestedGlobalCut {
 	cut := make(ContestedGlobalCut)
 	for shardID := range shardIds.Iterable() {
-		shardCuts := make([]ShardCut, numServersPerShard)
+		shardCuts := make(ShardCuts, numServersPerShard)
 		for i := 0; i < numServersPerShard; i++ {
-			shardCuts[i] = make(ShardCut, numServersPerShard)
+			shardCuts[i] = make(Cut, numServersPerShard)
 		}
 		cut[shardID] = shardCuts
 	}
@@ -177,18 +154,13 @@ func (server *orderServer) addShard(shardID int) {
 	defer server.mu.Unlock()
 
 	server.shardIds.Add(shardID)
-	server.globalState[shardID] = make(ShardState, server.numServersPerShard)
-	server.committedGlobalCut[shardID] = make(ShardCut, server.numServersPerShard)
-	server.contestedGlobalCut[shardID] = make([]ShardCut, server.numServersPerShard)
+	server.committedGlobalCut[shardID] = make(Cut, server.numServersPerShard)
+	server.contestedGlobalCut[shardID] = make(ShardCuts, server.numServersPerShard)
 	server.dataResponseChannels[shardID] = make([]chan pb.ReportResponse, server.numServersPerShard)
 
 	for i := 0; i < server.numServersPerShard; i++ {
 		server.dataResponseChannels[shardID][i] = make(chan pb.ReportResponse)
-		server.contestedGlobalCut[shardID][i] = make(ShardCut, server.numServersPerShard)
-		server.globalState[shardID][i] = make(ReplicaCut, server.numServersPerShard)
-		for j := 0; j < server.numServersPerShard; j++ {
-			server.globalState[shardID][i][j] = 0
-		}
+		server.contestedGlobalCut[shardID][i] = make(Cut, server.numServersPerShard)
 	}
 }
 
@@ -218,7 +190,6 @@ func (server *orderServer) deleteShard(shardID int) bool {
 	// Meaningless to others unless a cut with this deletion is committed (consensus is reached).
 	delete(server.committedGlobalCut, shardID)
 	delete(server.contestedGlobalCut, shardID)
-	delete(server.globalState, shardID)
 
 	// Cleanup channels used for data layer communication
 	server.shardIds.Remove(shardID)
@@ -318,8 +289,8 @@ computeShardCut computes the cut for the given [shard].
 We do this by computing the minimum of each replica's maximum recorded value across
 all the replicas in a shard.
 */
-func (server *orderServer) computeShardCut(shard ShardState) ShardCut {
-	cut := make(ShardCut, server.numServersPerShard)
+func (server *orderServer) computeShardCut(shard ShardCuts) Cut {
+	cut := make(Cut, server.numServersPerShard)
 	for i := 0; i < server.numServersPerShard; i++ {
 		cut[i] = math.MaxInt64
 	}
@@ -341,9 +312,11 @@ listeners.
 */
 func (server *orderServer) computeGlobalCut() CommittedGlobalCut {
 	globalCut := initCommittedCut(server.shardIds, server.numServersPerShard)
-	for shardID, shardState := range server.globalState {
+	server.mu.RLock()
+	for shardID, shardState := range server.contestedGlobalCut {
 		globalCut[shardID] = server.computeShardCut(shardState)
 	}
+	server.mu.RUnlock()
 	return globalCut
 }
 
@@ -355,6 +328,7 @@ data servers. Therefore, we also compute each individual GSN offset and update t
 globalGSN value in this method.
 */
 func (server *orderServer) broadcastGlobalCut(globalCut CommittedGlobalCut) {
+	server.mu.Lock()
 	for shardID, replicaChannels := range server.dataResponseChannels {
 		shardID = int(shardID)
 		// TODO: Update protobufs so we don't have to customize this in the ordering layer
@@ -379,6 +353,7 @@ func (server *orderServer) broadcastGlobalCut(globalCut CommittedGlobalCut) {
 		// Update last known committed cut
 		server.committedGlobalCut[shardID] = globalCut[shardID]
 	}
+	server.mu.Unlock()
 }
 
 ////////////////////// RAFT FUNCTIONS
@@ -413,7 +388,7 @@ func (server *orderServer) listenForRaftCommits() {
 		} else {
 			// req is a set of proposed updates to the global state
 			// TODO: ReportRequest should ideally be a map
-			cut := make(ReplicaCut, server.numServersPerShard)
+			cut := make(Cut, server.numServersPerShard)
 			for i := 0; i < len(cut); i++ {
 				cut[i] = int(req.TentativeCut[i])
 			}
@@ -421,8 +396,8 @@ func (server *orderServer) listenForRaftCommits() {
 			// Update the global state
 			server.mu.Lock()
 			for i := 0; i < server.numServersPerShard; i++ {
-				prior := server.globalState[int(req.ShardID)][int(req.ReplicaID)][i]
-				server.globalState[int(req.ShardID)][int(req.ReplicaID)][i] = golib.Max(prior, cut[i])
+				prior := server.contestedGlobalCut[int(req.ShardID)][int(req.ReplicaID)][i]
+				server.contestedGlobalCut[int(req.ShardID)][int(req.ReplicaID)][i] = golib.Max(prior, cut[i])
 			}
 			server.mu.Unlock()
 		}
