@@ -242,15 +242,17 @@ proposalRaftBatch periodically proposes that raft batch and send a globalCut
  to the data layer
 */
 func (server *orderServer) proposalRaftBatch() {
-	ticker := time.NewTicker(100 * time.Microsecond) // todo remove hard-coded interval
+	ticker := time.NewTicker(1000 * time.Millisecond) // todo remove hard-coded interval
 	for range ticker.C {
-		isLeader := server.rc.node.Status().Lead == uint64(server.rc.id)
+		if server.rc.node == nil {
+			continue
+		}
+		isLeader := server.rc.leaderID == uint64(server.rc.id)
 
 		//do nothing if you're not the leader
 		if !isLeader {
 			continue
 		}
-
 		// propose a batch operation to raft
 		batchReq := &pb.ReportRequest{Batch: true}
 		marshaledReq, err := proto.Marshal(batchReq)
@@ -268,7 +270,7 @@ Triggered when Raft commits a new message.
 */
 func (server *orderServer) listenForRaftCommits() {
 	for entry := range server.rc.commitC {
-		if entry.Data == nil {
+		if entry == nil {
 			server.attemptRecoverFromSnapshot()
 			continue
 		}

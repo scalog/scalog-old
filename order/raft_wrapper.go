@@ -54,6 +54,9 @@ type raftNode struct {
 	getSnapshot func() ([]byte, error)
 	lastIndex   uint64 // index of log at start
 
+	leaderID uint64
+	leaderMu sync.RWMutex
+
 	confState     raftpb.ConfState
 	snapshotIndex uint64
 	appliedIndex  uint64
@@ -91,7 +94,6 @@ func newRaftNode(id int, peers []string, join bool, getSnapshot func() ([]byte, 
 		confChangeC: make(chan raftpb.ConfChange),
 		commitC:     commitC,
 		errorC:      errorC,
-		leaderMu:    sync.RWMutex{},
 		id:          id,
 		peers:       peers,
 		join:        join,
@@ -99,6 +101,7 @@ func newRaftNode(id int, peers []string, join bool, getSnapshot func() ([]byte, 
 		snapdir:     fmt.Sprintf("scalograft-%d-snap", id),
 		getSnapshot: getSnapshot,
 		leaderID:    raft.None,
+		leaderMu:    sync.RWMutex{},
 		snapCount:   defaultSnapshotCount,
 		stopc:       make(chan struct{}),
 		httpstopc:   make(chan struct{}),
@@ -458,6 +461,7 @@ func (rc *raftNode) serveChannels() {
 
 		// store raft entries to wal, then publish over commit channel
 		case rd := <-rc.node.Ready():
+			rc.leaderUpdate(rd.SoftState)
 			rc.wal.Save(rd.HardState, rd.Entries)
 			if !raft.IsEmptySnap(rd.Snapshot) {
 				rc.saveSnap(rd.Snapshot)
@@ -480,6 +484,17 @@ func (rc *raftNode) serveChannels() {
 		case <-rc.stopc:
 			rc.stop()
 			return
+		}
+	}
+}
+
+func (rc *raftNode) leaderUpdate(softstate *raft.SoftState) {
+	if softstate != nil {
+		newLeader := softstate.Lead
+		if newLeader != rc.leaderID {
+			rc.leaderMu.Lock()
+			rc.leaderID = newLeader
+			rc.leaderMu.Unlock()
 		}
 	}
 }

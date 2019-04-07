@@ -8,9 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/scalog/scalog/logger"
-
 	"github.com/scalog/scalog/data/messaging"
+	"github.com/scalog/scalog/logger"
 	"google.golang.org/grpc"
 )
 
