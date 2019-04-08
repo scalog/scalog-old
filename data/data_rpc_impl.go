@@ -5,11 +5,14 @@ import (
 	"errors"
 	"io"
 
+	"github.com/scalog/scalog/logger"
+
 	"github.com/scalog/scalog/data/messaging"
 	pb "github.com/scalog/scalog/data/messaging"
 )
 
 func (server *dataServer) Append(c context.Context, req *pb.AppendRequest) (*pb.AppendResponse, error) {
+	logger.Printf("Got append request from client %d", req.Cid)
 	if server.isFinalized {
 		return nil, errors.New("this shard has been finalized. No further appends will be permitted")
 	}

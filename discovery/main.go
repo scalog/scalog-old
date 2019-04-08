@@ -37,19 +37,16 @@ type discoveryServer struct {
 func (ds *discoveryServer) DiscoverServers(ctx context.Context, req *rpc.DiscoverRequest) (*rpc.DiscoverResponse, error) {
 	services, err := ds.client.CoreV1().Services(viper.GetString("namespace")).List(ds.serverLabels)
 	if err != nil {
-		logger.Panicf("Error when querying kubernetes api for list of data service IPs")
+		logger.Panicf(err.Error())
 	}
 
-	serviceIPs := make([]string, len(services.Items))
+	serviceIPs := make([]int32, len(services.Items))
 	for i, service := range services.Items {
-		// We assume that each one of these services only has one external IP
-		var externalIPs []string
-		if len(service.Spec.ExternalIPs) == 0 {
-			return nil, errors.New("External data service does not have an external IP")
+		if len(service.Spec.Ports) != 1 {
+			return nil, errors.New("expected only a single port service")
 		}
-		serviceIPs[i] = externalIPs[0]
+		serviceIPs[i] = service.Spec.Ports[0].NodePort
 	}
-
 	resp := rpc.DiscoverResponse{
 		ServerAddresses: serviceIPs,
 	}
@@ -58,7 +55,7 @@ func (ds *discoveryServer) DiscoverServers(ctx context.Context, req *rpc.Discove
 
 func newDiscoveryServer() *discoveryServer {
 	clientset := kube.InitKubernetesClient()
-	listOptions := metav1.ListOptions{LabelSelector: "type=exposedDataService"}
+	listOptions := metav1.ListOptions{LabelSelector: "role=scalog-exposed-data-service"}
 	ds := &discoveryServer{
 		client:       clientset,
 		serverLabels: listOptions,
