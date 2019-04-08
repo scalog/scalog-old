@@ -28,12 +28,6 @@ func (server *orderServer) Report(stream pb.Order_ReportServer) error {
 			spawned = true
 		}
 
-		// // Check for missing log requests
-		// if req.MinLogNum != 0 && req.MaxLogNum != 0 {
-		// 	server.provideMissingCuts(int(req.MinLogNum), int(req.MaxLogNum), int(req.ShardID), stream)
-		// 	continue
-		// }
-
 		serializedReq, err := proto.Marshal(req)
 		if err != nil {
 			logger.Panicf(err.Error())

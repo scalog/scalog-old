@@ -5,13 +5,13 @@ import (
 	"google.golang.org/grpc"
 )
 
-/**
+/*
 Attempt to connect to the URL given as a GRPC client. Returns nil during failure.
 */
 func ConnectTo(url string) *grpc.ClientConn {
 	var opts []grpc.DialOption
 	// TODO: Use a secured connection
-	opts = append(opts, grpc.WithInsecure())
+	opts = append(opts, grpc.WithInsecure(), grpc.WithBlock())
 
 	logger.Printf("Dialing " + url)
 	conn, err := grpc.Dial(url, opts...)
