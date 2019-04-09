@@ -4,11 +4,14 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"sort"
 	"sync"
 	"time"
 
 	"github.com/scalog/scalog/internal/pkg/golib"
 	"github.com/scalog/scalog/internal/pkg/kube"
+
+	"github.com/scalog/scalog/order"
 
 	"github.com/scalog/scalog/data/filesystem"
 	"github.com/scalog/scalog/data/messaging"
@@ -27,7 +30,7 @@ type Record struct {
 	csn        int32
 	gsn        int32
 	record     string
-	commitResp chan int // Should send back a GSN to be forwarded to client
+	commitResp chan int32 // Should send back a GSN to be forwarded to client
 }
 
 // Server's view of latest cuts in all servers of the shard
@@ -35,11 +38,14 @@ type ShardCut []int
 
 type dataServer struct {
 	// ID of this data server within a shard
-	replicaID int
+	replicaID int32
 	// Number of servers within a data shard
 	replicaCount int
 	// Shard ID
 	shardID int32
+	// lastComittedCut is the last batch recieved from the ordering layer
+	lastCommittedCut order.CommittedCut
+	lastAssignedGSN  int32
 	// Last cut with GSN assigned by ordering layer
 	lastSequencedCut ShardCut
 	// True if this replica has been finalized
@@ -64,7 +70,7 @@ Note: This is a blocking operation -- waits until all servers in a shard are up 
 communication channels with them. Only then will this server become ready to take requests.
 */
 func newDataServer() *dataServer {
-	replicaID := viper.GetInt("id")
+	replicaID := viper.GetInt32("id")
 	replicaCount := viper.GetInt("replica_count")
 	// TODO: Refactor this out
 	shardName := viper.GetString("shardGroup")
@@ -102,6 +108,8 @@ func newDataServer() *dataServer {
 		replicaID:        replicaID,
 		replicaCount:     replicaCount,
 		shardID:          shardID,
+		lastCommittedCut: make(order.CommittedCut),
+		lastAssignedGSN:  0,
 		lastSequencedCut: make([]int, replicaCount),
 		isFinalized:      false,
 		stableStorage:    &fs,
@@ -134,10 +142,19 @@ func (server *dataServer) sendTentativeCutsToOrder(stream om.Order_ReportClient,
 		if golib.SliceEq(cut, sent) {
 			continue
 		}
+
 		reportReq := &om.ReportRequest{
-			ShardID:      viper.GetInt32("shardID"),
-			ReplicaID:    int32(server.replicaID),
-			TentativeCut: cut,
+			Shards: map[int32]*om.ShardView{
+				server.shardID: &om.ShardView{
+					Replicas: map[int32]*om.Cut{
+						server.replicaID: &om.Cut{
+							Cut: cut,
+						},
+					},
+				},
+			},
+			Finalize: nil,
+			Batch:    false,
 		}
 		sent = cut
 		stream.Send(reportReq)
@@ -177,6 +194,15 @@ func (server *dataServer) notifyAllWaitingClients() {
 	}
 }
 
+func (server *dataServer) checkIfFinalized(finalized []int32) bool {
+	for _, sid := range finalized {
+		if server.shardID == sid {
+			return true
+		}
+	}
+	return false
+}
+
 /*
 	Listens on the given stream for finalized cuts from the ordering layer. Finalized cuts
 	are read into the server buffers where we record GSN's and respond to clients.
@@ -190,20 +216,11 @@ func (server *dataServer) receiveFinalizedCuts(stream om.Order_ReportClient, sen
 		if err != nil {
 			logger.Panicf(err.Error())
 		}
-		if len(in.CommittedCuts) != len(server.serverBuffers) {
-			logger.Panicf(
-				fmt.Sprintf(
-					"[Data] Received cut is of irregular length (%d vs %d)",
-					len(in.CommittedCuts),
-					len(server.serverBuffers),
-				),
-			)
-		}
 
 		// We should no longer receive or send requests to the ordering layer.
 		// We should also label ourselves as finalized so that the discovery layer
 		// does not advertise this pod again. No writes should be sent out.
-		if in.Finalized {
+		if server.checkIfFinalized(in.Finalize) {
 			// Stop serving further Append requests
 			server.isFinalized = true
 			// Stop sending tentative cuts to the ordering layer
@@ -211,31 +228,59 @@ func (server *dataServer) receiveFinalizedCuts(stream om.Order_ReportClient, sen
 			// Prevent discovery layer from finding this pod ever again
 			server.labelPodAsFinalized()
 			// Upon returning, stop receiving cuts from the ordering layer
-
 			return
 		}
 
-		gsn := int(in.StartGlobalSequenceNum)
-		//update gsn on logs
-		for idx, cut := range in.CommittedCuts {
-			offset := server.lastSequencedCut[idx]
-			numLogs := int(cut) - offset
+		// So we have to do this in sorted order -- sort the keys and then
+		// lexicographically start incrementing the gsn until we find this shard
+		shardIDs := make([]int, len(in.CommitedCuts))
+		i := 0
+		for sid := range in.CommitedCuts {
+			shardIDs[i] = int(sid)
+			i++
+		}
+		sort.Ints(shardIDs)
 
-			for i := 0; i < numLogs; i++ {
-				server.serverBuffers[idx][offset+i].gsn = int32(gsn)
-				server.stableStorage.WriteLog(gsn, server.serverBuffers[idx][offset+i].record)
-				// If you were the one who received this client req, you should respond to it
-				if idx == server.replicaID {
-					server.serverBuffers[idx][offset+i].commitResp <- gsn
+		for shardID := range shardIDs {
+			currentShardCut := in.CommitedCuts[int32(shardID)].Cut
+
+			// It's possible that this is the first time we are seeing this registered shard
+			// come back in a cut. In that case, we initialize the previously seen committed
+			// cut to be the zero vector
+			if _, isBound := server.lastCommittedCut[int32(shardID)]; !isBound {
+				server.lastCommittedCut[int32(shardID)] = &om.Cut{
+					Cut: make([]int32, server.replicaCount),
 				}
-				gsn++
+			}
+
+			// If we have arrived at the current shardID
+			if int(server.shardID) == shardID {
+				// Last committed cut for this server
+				lastSequencedCut := server.lastCommittedCut[int32(shardID)].Cut
+				for idx, r := range currentShardCut {
+					offset := lastSequencedCut[idx]
+					numLogs := int(r - offset)
+					for i := 0; i < numLogs; i++ {
+						server.serverBuffers[idx][int(offset)+i].gsn = server.lastAssignedGSN
+						server.stableStorage.WriteLog(server.lastAssignedGSN, server.serverBuffers[idx][int(offset)+i].record)
+						// If you were the one who received this client req, you should respond to it
+						if idx == int(server.replicaID) {
+							server.serverBuffers[idx][int(offset)+i].commitResp <- server.lastAssignedGSN
+						}
+						server.lastAssignedGSN++
+					}
+				}
+				continue
+			}
+			// Update the gsn
+			for i, r := range currentShardCut {
+				diff := r - server.lastCommittedCut[int32(shardID)].Cut[i]
+				server.lastAssignedGSN += diff
 			}
 		}
 
-		//update stored cut & log number
-		for i := 0; i < server.replicaCount; i++ {
-			server.lastSequencedCut[i] = int(in.CommittedCuts[i])
-		}
+		// update stored cut & log number
+		server.lastCommittedCut = in.CommitedCuts
 	}
 }
 

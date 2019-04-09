@@ -27,12 +27,10 @@ func (server *orderServer) Report(stream pb.Order_ReportServer) error {
 			go server.reportResponseRoutine(stream, req)
 			spawned = true
 		}
-
 		serializedReq, err := proto.Marshal(req)
 		if err != nil {
 			logger.Panicf(err.Error())
 		}
-
 		server.rc.proposeC <- serializedReq
 	}
 }
@@ -42,22 +40,26 @@ func (server *orderServer) Register(ctx context.Context, req *pb.RegisterRequest
 }
 
 func (server *orderServer) Finalize(ctx context.Context, req *pb.FinalizeRequest) (*pb.FinalizeResponse, error) {
-
-	for _, shardID := range req.ShardIDs {
-		proposedShardFinalization := pb.ReportRequest{ShardID: shardID, Finalized: true}
-		raftReq, err := proto.Marshal(&proposedShardFinalization)
-		if err != nil {
-			logger.Printf("Could not marshal finalization request message")
-			return nil, err
-		}
-		server.finalizationResponseChannels[shardID] = make(chan struct{})
-		server.rc.proposeC <- raftReq
+	proposedShardFinalization := pb.ReportRequest{
+		Shards:   nil,
+		Finalize: req.Shards,
+		Batch:    false,
 	}
+	raftProposal, err := proto.Marshal(&proposedShardFinalization)
+	if err != nil {
+		logger.Printf("Could not marshal finalization request message")
+		return nil, err
+	}
+	// Create finalizationResponseChannels for each shard. We should wait until we hear back from
+	// all of these shards
+	for _, shardID := range req.Shards {
+		server.finalizationResponseChannels[shardID] = make(chan struct{})
+	}
+	server.rc.proposeC <- raftProposal
 	// Wait for raft to commit the finalization requests before responding
-	for _, shardID := range req.ShardIDs {
+	for _, shardID := range req.Shards {
 		<-server.finalizationResponseChannels[shardID]
 		delete(server.finalizationResponseChannels, shardID)
 	}
 	return &pb.FinalizeResponse{}, nil
-
 }

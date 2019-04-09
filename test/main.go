@@ -15,7 +15,7 @@ func testFileSystem() {
 	fmt.Println("Running RecordStorage")
 	rs := filesystem.New("tmp")
 	for i := 0; i < 10; i++ {
-		rs.WriteLog(i, "this is "+strconv.Itoa(i))
+		rs.WriteLog(int32(i), "this is "+strconv.Itoa(i))
 	}
 	rs.Close()
 }
