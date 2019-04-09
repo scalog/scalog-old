@@ -42,8 +42,6 @@ type dataServer struct {
 	shardID int32
 	// Last cut with GSN assigned by ordering layer
 	lastSequencedCut ShardCut
-	// ID of lastSequencedCut
-	lastLogNum int
 	// True if this replica has been finalized
 	isFinalized bool
 	// Stable storage for entries into this shard
@@ -105,7 +103,6 @@ func newDataServer() *dataServer {
 		replicaCount:     replicaCount,
 		shardID:          shardID,
 		lastSequencedCut: make([]int, replicaCount),
-		lastLogNum:       0,
 		isFinalized:      false,
 		stableStorage:    &fs,
 		serverBuffers:    make([][]Record, replicaCount),
@@ -219,24 +216,6 @@ func (server *dataServer) receiveFinalizedCuts(stream om.Order_ReportClient, sen
 		}
 
 		gsn := int(in.StartGlobalSequenceNum)
-		minLogNum := int(in.MinLogNum)
-		maxLogNum := int(in.MaxLogNum)
-
-		//check log num for missing cuts
-		if minLogNum <= server.lastLogNum {
-			logger.Printf("Received older cut: had v%d, received [%d, %d]", server.lastLogNum, minLogNum, maxLogNum)
-			continue
-		} else if minLogNum > server.lastLogNum+1 {
-			logger.Printf("Missing logs: had v%d, received [%d, %d]", server.lastLogNum, minLogNum, maxLogNum)
-			request := om.ReportRequest{
-				MinLogNum: int32(server.lastLogNum + 1),
-				MaxLogNum: int32(maxLogNum),
-				ShardID:   server.shardID,
-			}
-			stream.Send(&request)
-			continue
-		}
-
 		//update gsn on logs
 		for idx, cut := range in.CommittedCuts {
 			offset := server.lastSequencedCut[idx]
@@ -257,7 +236,6 @@ func (server *dataServer) receiveFinalizedCuts(stream om.Order_ReportClient, sen
 		for i := 0; i < server.replicaCount; i++ {
 			server.lastSequencedCut[i] = int(in.CommittedCuts[i])
 		}
-		server.lastLogNum = maxLogNum
 	}
 }
 

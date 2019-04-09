@@ -8,8 +8,6 @@ import (
 	fmt "fmt"
 	proto "github.com/golang/protobuf/proto"
 	grpc "google.golang.org/grpc"
-	codes "google.golang.org/grpc/codes"
-	status "google.golang.org/grpc/status"
 	math "math"
 )
 
@@ -515,23 +513,6 @@ type DataServer interface {
 	Replicate(Data_ReplicateServer) error
 	Subscribe(*SubscribeRequest, Data_SubscribeServer) error
 	Trim(context.Context, *TrimRequest) (*TrimResponse, error)
-}
-
-// UnimplementedDataServer can be embedded to have forward compatible implementations.
-type UnimplementedDataServer struct {
-}
-
-func (*UnimplementedDataServer) Append(ctx context.Context, req *AppendRequest) (*AppendResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method Append not implemented")
-}
-func (*UnimplementedDataServer) Replicate(srv Data_ReplicateServer) error {
-	return status.Errorf(codes.Unimplemented, "method Replicate not implemented")
-}
-func (*UnimplementedDataServer) Subscribe(req *SubscribeRequest, srv Data_SubscribeServer) error {
-	return status.Errorf(codes.Unimplemented, "method Subscribe not implemented")
-}
-func (*UnimplementedDataServer) Trim(ctx context.Context, req *TrimRequest) (*TrimResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method Trim not implemented")
 }
 
 func RegisterDataServer(s *grpc.Server, srv DataServer) {

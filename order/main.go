@@ -34,12 +34,12 @@ func Start() {
 
 	id, peers := getRaftIndexPeerUrls()
 	// TODO: remove hard coded server shard count
-	server := newOrderServer(golib.NewSet(), 2)
+	server := newOrderServer(golib.NewSet(), viper.GetInt("replica_count"))
 	rc := newRaftNode(id, peers, false, server.getSnapshot)
 	server.rc = rc
 
 	messaging.RegisterOrderServer(grpcServer, server)
-	go server.batchCuts()
+	go server.proposalRaftBatch()
 	go server.listenForRaftCommits()
 
 	logger.Printf("Order layer server available on port %d\n", viper.Get("port"))

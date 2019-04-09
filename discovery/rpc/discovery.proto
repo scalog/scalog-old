@@ -15,5 +15,5 @@ service Discovery {
 message DiscoverRequest {}
 
 message DiscoverResponse {
-	repeated string serverAddresses = 1;
+	repeated int32 serverAddresses = 1;
 }

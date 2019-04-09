@@ -8,8 +8,6 @@ gRPC for Order layer of Scalog
 service Order {
     rpc Report(stream ReportRequest) returns (stream ReportResponse) {}
 
-    rpc Forward(stream ReportRequest) returns (stream ForwardResponse) {}
-
     rpc Register(RegisterRequest) returns (RegisterResponse) {}
 
     rpc Finalize(FinalizeRequest) returns (FinalizeResponse) {}
@@ -21,29 +19,15 @@ message ReportRequest {
     repeated int32 tentativeCut = 3;
     // True only if the ordering layer wishes to propose a finalization of this particular shard
     bool finalized = 4;
-    // Non-zero if data server wants to request missing cuts in range [minLogNum, maxLogNum] (inclusive)
-    int32 minLogNum = 5;
-    int32 maxLogNum = 6;
-}
-
-message IntList {
-    repeated int32 list = 1;
-}
-
-message ForwardResponse {
-	map<int32, int32> startGlobalSequenceNums = 1; // Gsn to start counting off of
-    map<int32, IntList> committedCuts = 2;
-    int32 startGlobalSequenceNum = 3; //The next unused gsn
+    // True if this is a request to batch and send the committedcuts
+    bool batch = 5;
 }
 
 message ReportResponse {
     int32 startGlobalSequenceNum = 1;
     repeated int32 committedCuts = 2;
-    // range [minLogNum, maxLogNum] includes all newly applied entries & config changes (inclusive)
-    int32 minLogNum = 3;
-    int32 maxLogNum = 4;
     // True only if the ordering layer is finalizing this data replica
-    bool finalized = 5;
+    bool finalized = 3;
 }
 
 message RegisterRequest {
