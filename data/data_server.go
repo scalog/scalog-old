@@ -52,7 +52,6 @@ type dataServer struct {
 	// Stable storage for entries into this shard
 	stableStorage *filesystem.RecordStorage
 	// Main storage stacks for incoming records
-	// TODO: evantzhao use goroutines and channels to update this instead of mutex
 	serverBuffers [][]Record
 	// Protects all internal structures
 	mu sync.RWMutex
@@ -122,7 +121,7 @@ func newDataServer() *dataServer {
 
 /*
 	Periodically sends a vector composed of the length of this server's buffers to
-	the ordering layer.
+	the ordering layer. Only sends if any new messages were received by this shard
 */
 func (server *dataServer) sendTentativeCutsToOrder(stream om.Order_ReportClient, ticker *time.Ticker) {
 	// Keeps track of previous ordering layer reports
@@ -159,6 +158,9 @@ func (server *dataServer) sendTentativeCutsToOrder(stream om.Order_ReportClient,
 	}
 }
 
+/*
+	labelPodsAsFinalized adds a status:"finalized" label to the kubernetes pod object
+*/
 func (server *dataServer) labelPodAsFinalized() {
 	podClient := server.kubeClient.CoreV1().Pods("scalog")
 	retryErr := retry.RetryOnConflict(retry.DefaultRetry, func() error {
@@ -192,6 +194,9 @@ func (server *dataServer) notifyAllWaitingClients() {
 	}
 }
 
+/*
+	checkIfFinalized returns true if server is inside of [finalized]
+*/
 func (server *dataServer) checkIfFinalized(finalized []int32) bool {
 	for _, sid := range finalized {
 		if server.shardID == sid {
@@ -202,8 +207,10 @@ func (server *dataServer) checkIfFinalized(finalized []int32) bool {
 }
 
 /*
-	Listens on the given stream for finalized cuts from the ordering layer. Finalized cuts
-	are read into the server buffers where we record GSN's and respond to clients.
+	Listens on the given stream for finalized cuts from the ordering layer.
+
+	Two actions occur upon receipt of a ordering layer report: 1) We update our cut
+	2) We are finalized.
 */
 func (server *dataServer) receiveFinalizedCuts(stream om.Order_ReportClient, sendTicker *time.Ticker) {
 	for {
@@ -215,9 +222,6 @@ func (server *dataServer) receiveFinalizedCuts(stream om.Order_ReportClient, sen
 			logger.Panicf(err.Error())
 		}
 
-		// We should no longer receive or send requests to the ordering layer.
-		// We should also label ourselves as finalized so that the discovery layer
-		// does not advertise this pod again. No writes should be sent out.
 		if server.checkIfFinalized(in.Finalize) {
 			// Stop serving further Append requests
 			server.isFinalized = true

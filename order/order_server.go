@@ -75,6 +75,8 @@ func newOrderServer(shardIds *golib.Set, numServersPerShard int) *orderServer {
 	}
 }
 
+////////////// INITIALIZERS
+
 func initCommittedCut(shardIds *golib.Set, numServersPerShard int) CommittedCut {
 	cut := make(CommittedCut)
 	for shardID := range shardIds.Iterable() {
@@ -97,6 +99,8 @@ func initContestedCut(shardIds *golib.Set, numServersPerShard int) ContestedCut 
 	return cut
 }
 
+////////////// ORDER SERVER STATE MUTATORS
+
 // updateCommittedCuts updates both the GSN and committedCuts
 func (server *orderServer) updateCommittedCuts() {
 	for shardID := range server.shardIds.Iterable() {
@@ -115,6 +119,9 @@ func (server *orderServer) updateCommittedCuts() {
 	}
 }
 
+// getShardsToFinalize returns all shardID's bound in this map that
+// are meant to commit in 0 cuts, and decrements all other bound
+// shardID's by one.
 func (server *orderServer) getShardsToFinalize() []int32 {
 	shardsToFinalize := make([]int32, 0)
 	for shardID, kCuts := range server.finalizeMap {
@@ -259,12 +266,16 @@ func (server *orderServer) proposalRaftBatch() {
 	}
 }
 
+/*
+	updateFinalizationMap inserts [finalizedShards] into the map
+*/
 func (server *orderServer) updateFinalizationMap(finalizedShards map[int32]int32) {
 	for shardID, kCuts := range finalizedShards {
 		server.finalizeMap[shardID] = kCuts
 	}
 }
 
+// responds to finalization channels
 func (server *orderServer) respondToFinalizeChannels(finalizedShards map[int32]int32) {
 	for shardID := range finalizedShards {
 		if ch, ok := server.finalizationResponseChannels[shardID]; ok {
