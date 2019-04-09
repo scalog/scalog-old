@@ -45,9 +45,8 @@ type dataServer struct {
 	shardID int32
 	// lastComittedCut is the last batch recieved from the ordering layer
 	lastCommittedCut order.CommittedCut
-	lastAssignedGSN  int32
-	// Last cut with GSN assigned by ordering layer
-	lastSequencedCut ShardCut
+	// nextAvailableGSN is the next
+	nextAvailableGSN int32
 	// True if this replica has been finalized
 	isFinalized bool
 	// Stable storage for entries into this shard
@@ -109,8 +108,7 @@ func newDataServer() *dataServer {
 		replicaCount:     replicaCount,
 		shardID:          shardID,
 		lastCommittedCut: make(order.CommittedCut),
-		lastAssignedGSN:  0,
-		lastSequencedCut: make([]int, replicaCount),
+		nextAvailableGSN: 0,
 		isFinalized:      false,
 		stableStorage:    &fs,
 		serverBuffers:    make([][]Record, replicaCount),
@@ -261,13 +259,13 @@ func (server *dataServer) receiveFinalizedCuts(stream om.Order_ReportClient, sen
 					offset := lastSequencedCut[idx]
 					numLogs := int(r - offset)
 					for i := 0; i < numLogs; i++ {
-						server.serverBuffers[idx][int(offset)+i].gsn = server.lastAssignedGSN
-						server.stableStorage.WriteLog(server.lastAssignedGSN, server.serverBuffers[idx][int(offset)+i].record)
+						server.serverBuffers[idx][int(offset)+i].gsn = server.nextAvailableGSN
+						server.stableStorage.WriteLog(server.nextAvailableGSN, server.serverBuffers[idx][int(offset)+i].record)
 						// If you were the one who received this client req, you should respond to it
 						if idx == int(server.replicaID) {
-							server.serverBuffers[idx][int(offset)+i].commitResp <- server.lastAssignedGSN
+							server.serverBuffers[idx][int(offset)+i].commitResp <- server.nextAvailableGSN
 						}
-						server.lastAssignedGSN++
+						server.nextAvailableGSN++
 					}
 				}
 				continue
@@ -275,7 +273,7 @@ func (server *dataServer) receiveFinalizedCuts(stream om.Order_ReportClient, sen
 			// Update the gsn
 			for i, r := range currentShardCut {
 				diff := r - server.lastCommittedCut[int32(shardID)].Cut[i]
-				server.lastAssignedGSN += diff
+				server.nextAvailableGSN += diff
 			}
 		}
 

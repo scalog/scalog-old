@@ -44,7 +44,6 @@ type orderServer struct {
 	finalizeMap                  FinalizationMap
 	finalizedShards              *golib.Set32
 	globalSequenceNum            int32
-	logNum                       int // # of batch since inception
 	shardIds                     *golib.Set
 	numServersPerShard           int
 	mu                           sync.RWMutex
@@ -58,7 +57,6 @@ type orderServerState struct {
 	committedCut      CommittedCut
 	contestedCut      ContestedCut
 	globalSequenceNum int32
-	logNum            int
 	shardIds          *golib.Set
 }
 
@@ -69,7 +67,6 @@ func newOrderServer(shardIds *golib.Set, numServersPerShard int) *orderServer {
 		finalizeMap:                  make(FinalizationMap),
 		finalizedShards:              golib.NewSet32(),
 		globalSequenceNum:            0,
-		logNum:                       1,
 		shardIds:                     shardIds,
 		numServersPerShard:           numServersPerShard,
 		mu:                           sync.RWMutex{},
@@ -318,10 +315,6 @@ func (server *orderServer) listenForRaftCommits() {
 			}
 			server.mu.Unlock()
 		}
-		// set the new state
-		server.mu.Lock()
-		server.logNum = int(entry.Index) + 1
-		server.mu.Unlock()
 	}
 }
 
@@ -335,7 +328,6 @@ func (server *orderServer) getState() orderServerState {
 		server.committedCut,
 		server.contestedCut,
 		server.globalSequenceNum,
-		server.logNum,
 		server.shardIds,
 	}
 }
@@ -351,7 +343,6 @@ func (server *orderServer) loadState(state *orderServerState) {
 	server.committedCut = state.committedCut
 	server.contestedCut = state.contestedCut
 	server.globalSequenceNum = state.globalSequenceNum
-	server.logNum = state.logNum
 
 	// TODO: Update loadState
 
