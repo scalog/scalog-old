@@ -266,18 +266,14 @@ func (server *orderServer) proposalRaftBatch() {
 	}
 }
 
-/*
-	updateFinalizationMap inserts [finalizedShards] into the map
-*/
-func (server *orderServer) updateFinalizationMap(finalizedShards map[int32]int32) {
-	for shardID, kCuts := range finalizedShards {
+func (server *orderServer) updateFinalizationMap(shardsToFinalize map[int32]int32) {
+	for shardID, kCuts := range shardsToFinalize {
 		server.finalizeMap[shardID] = kCuts
 	}
 }
 
-// responds to finalization channels
-func (server *orderServer) respondToFinalizeChannels(finalizedShards map[int32]int32) {
-	for shardID := range finalizedShards {
+func (server *orderServer) respondToFinalizeChannels(shardsToFinalize map[int32]int32) {
+	for shardID := range shardsToFinalize {
 		if ch, ok := server.finalizationResponseChannels[shardID]; ok {
 			close(ch)
 		}

@@ -244,8 +244,6 @@ func (server *dataServer) receiveFinalizedCuts(stream om.Order_ReportClient, sen
 		sort.Ints(shardIDs)
 
 		for shardID := range shardIDs {
-			currentShardCut := in.CommitedCuts[int32(shardID)].Cut
-
 			// It's possible that this is the first time we are seeing this registered shard
 			// come back in a cut. In that case, we initialize the previously seen committed
 			// cut to be the zero vector
@@ -255,6 +253,7 @@ func (server *dataServer) receiveFinalizedCuts(stream om.Order_ReportClient, sen
 				}
 			}
 
+			currentShardCut := in.CommitedCuts[int32(shardID)].Cut
 			// If we have arrived at the current shardID
 			if int(server.shardID) == shardID {
 				// Last committed cut for this server
