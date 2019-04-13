@@ -244,22 +244,27 @@ func (server *dataServer) receiveFinalizedCuts(stream om.Order_ReportClient, sen
 		sort.Ints(shardIDs)
 
 		for shardID := range shardIDs {
-			// It's possible that this is the first time we are seeing this registered shard
-			// come back in a cut. In that case, we initialize the previously seen committed
-			// cut to be the zero vector
-			if _, isBound := server.lastCommittedCut[int32(shardID)]; !isBound {
-				server.lastCommittedCut[int32(shardID)] = &om.Cut{
-					Cut: make([]int32, server.replicaCount),
-				}
-			}
-
 			currentShardCut := in.CommitedCuts[int32(shardID)].Cut
-			// If we have arrived at the current shardID
 			if int(server.shardID) == shardID {
 				// Last committed cut for this server
-				lastSequencedCut := server.lastCommittedCut[int32(shardID)].Cut
+				var lastSequencedCut []int32
+				// It's possible that this is the first time we are seeing this registered shard
+				// come back in a cut.
+				lastSequencedCutWrapper, isBound := server.lastCommittedCut[int32(shardID)]
+				if isBound {
+					lastSequencedCut = lastSequencedCutWrapper.Cut
+				} else {
+					lastSequencedCut = nil
+				}
 				for idx, r := range currentShardCut {
-					offset := lastSequencedCut[idx]
+					var offset int32
+					// If this is the first time we have seen this shard, initialize the previously
+					// seen committed cut to be the zero vector
+					if lastSequencedCut != nil {
+						offset = lastSequencedCut[idx]
+					} else {
+						offset = 0
+					}
 					numLogs := int(r - offset)
 					for i := 0; i < numLogs; i++ {
 						server.serverBuffers[idx][int(offset)+i].gsn = server.nextAvailableGSN
