@@ -39,18 +39,20 @@ func (ds *discoveryServer) DiscoverServers(ctx context.Context, req *rpc.Discove
 	if err != nil {
 		logger.Panicf(err.Error())
 	}
-
-	serviceIPs := make([]int32, len(services.Items))
+	serviceIPs := make([]*rpc.DataServerAddress, len(services.Items))
 	for i, service := range services.Items {
 		if len(service.Spec.Ports) != 1 {
-			return nil, errors.New("expected only a single port service")
+			return nil, errors.New("expected only a single port service for each data server")
 		}
-		serviceIPs[i] = service.Spec.Ports[0].NodePort
+		serviceIPs[i] = &rpc.DataServerAddress{
+			Port: service.Spec.Ports[0].NodePort,
+			Ip:   service.Spec.ClusterIP,
+		}
 	}
-	resp := rpc.DiscoverResponse{
-		ServerAddresses: serviceIPs,
+	resp := &rpc.DiscoverResponse{
+		Servers: serviceIPs,
 	}
-	return &resp, nil
+	return resp, nil
 }
 
 func newDiscoveryServer() *discoveryServer {

@@ -15,5 +15,10 @@ service Discovery {
 message DiscoverRequest {}
 
 message DiscoverResponse {
-	repeated int32 serverAddresses = 1;
+	repeated DataServerAddress servers = 1;
+}
+
+message DataServerAddress {
+	int32 port = 1;
+	string ip = 2;
 }
