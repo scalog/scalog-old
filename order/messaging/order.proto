@@ -13,21 +13,32 @@ service Order {
     rpc Finalize(FinalizeRequest) returns (FinalizeResponse) {}
 }
 
+message Cut {
+    // Array of len numReplicas 
+    repeated int32 cut = 1;
+}
+
+message ShardView {
+    // Key: ReplicaID, Value: replica cuts
+    map<int32, Cut> replicas = 1;
+}
+
 message ReportRequest {
-    int32 shardID = 1;
-    int32 replicaID = 2;
-    repeated int32 tentativeCut = 3;
-    // True only if the ordering layer wishes to propose a finalization of this particular shard
-    bool finalized = 4;
+    // Key: ShardID, Value: Shard cuts
+    map<int32, ShardView> shards = 1;    
+    // Non-nil only if the ordering layer wishes to propose a finalization these particular shards after k cuts
+    map<int32, int32> finalize = 2;
     // True if this is a request to batch and send the committedcuts
-    bool batch = 5;
+    bool batch = 3;
 }
 
 message ReportResponse {
-    int32 startGlobalSequenceNum = 1;
-    repeated int32 committedCuts = 2;
-    // True only if the ordering layer is finalizing this data replica
-    bool finalized = 3;
+    // Key: ShardID, Value: Commited cuts
+    map<int32, Cut> commitedCuts = 1;
+    // GSN to start computing at
+    int32 startGSN = 2;
+    // Array of shards that have been finalized in this batch
+    repeated int32 finalize = 3;
 }
 
 message RegisterRequest {
@@ -38,10 +49,8 @@ message RegisterRequest {
 message RegisterResponse {}
 
 message FinalizeRequest {
-    // Array of shards to finalize
-    repeated int32 shardIDs = 1;
-    // Finalize these shards after [finalizeAfterCuts] more cuts
-    int32 finalizeAfterCuts = 2;
+    // Array of shards to finalize after k cuts
+    map<int32, int32> shards = 1;
 }
 
 message FinalizeResponse {}

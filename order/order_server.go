@@ -2,7 +2,6 @@ package order
 
 import (
 	"encoding/json"
-	"fmt"
 	"math"
 	"sync"
 	"time"
@@ -24,13 +23,16 @@ type ShardCuts []Cut
 type ContestedCut map[int]ShardCuts
 
 // Map<Shard ID, Cuts in the shard>
-type CommittedCut map[int]Cut
+type CommittedCut map[int32]*pb.Cut
 
 // Number of new logs appended within the previous time period
 type Deltas CommittedCut
 
-// Map<Shard ID, Channels to write responses to for each server in shard>
-type ResponseChannels map[int][]chan pb.ReportResponse
+// ResponseChannels is an array of channels that response to connected aggregators
+type ResponseChannels []chan pb.ReportResponse
+
+// FinalizationMap map<shardID, finalize after k cuts>
+type FinalizationMap map[int32]int32
 
 // Map<Shard ID, Channels to write responses to when a shard finalization
 // request has been committed>
@@ -39,13 +41,14 @@ type FinalizationResponseChannels map[int32]chan struct{}
 type orderServer struct {
 	committedCut                 CommittedCut
 	contestedCut                 ContestedCut
-	globalSequenceNum            int
-	logNum                       int // # of batch since inception
+	finalizeMap                  FinalizationMap
+	finalizedShards              *golib.Set32
+	globalSequenceNum            int32
 	shardIds                     *golib.Set
 	numServersPerShard           int
 	mu                           sync.RWMutex
 	finalizationResponseChannels FinalizationResponseChannels
-	dataResponseChannels         ResponseChannels
+	aggregatorResponseChannels   ResponseChannels
 	rc                           *raftNode
 }
 
@@ -53,8 +56,7 @@ type orderServer struct {
 type orderServerState struct {
 	committedCut      CommittedCut
 	contestedCut      ContestedCut
-	globalSequenceNum int
-	logNum            int
+	globalSequenceNum int32
 	shardIds          *golib.Set
 }
 
@@ -62,20 +64,25 @@ func newOrderServer(shardIds *golib.Set, numServersPerShard int) *orderServer {
 	return &orderServer{
 		committedCut:                 initCommittedCut(shardIds, numServersPerShard),
 		contestedCut:                 initContestedCut(shardIds, numServersPerShard),
+		finalizeMap:                  make(FinalizationMap),
+		finalizedShards:              golib.NewSet32(),
 		globalSequenceNum:            0,
-		logNum:                       1,
 		shardIds:                     shardIds,
 		numServersPerShard:           numServersPerShard,
 		mu:                           sync.RWMutex{},
-		dataResponseChannels:         initResponseChannels(shardIds, numServersPerShard),
+		aggregatorResponseChannels:   make(ResponseChannels, 0),
 		finalizationResponseChannels: make(FinalizationResponseChannels),
 	}
 }
 
+////////////// INITIALIZERS
+
 func initCommittedCut(shardIds *golib.Set, numServersPerShard int) CommittedCut {
 	cut := make(CommittedCut)
 	for shardID := range shardIds.Iterable() {
-		cut[shardID] = make(Cut, numServersPerShard)
+		cut[int32(shardID)] = &pb.Cut{
+			Cut: make([]int32, numServersPerShard),
+		}
 	}
 	return cut
 }
@@ -92,16 +99,41 @@ func initContestedCut(shardIds *golib.Set, numServersPerShard int) ContestedCut 
 	return cut
 }
 
-func initResponseChannels(shardIds *golib.Set, numServersPerShard int) ResponseChannels {
-	channels := make(ResponseChannels)
-	for shardID := range shardIds.Iterable() {
-		channelsForShard := make([]chan pb.ReportResponse, numServersPerShard)
-		for i := 0; i < numServersPerShard; i++ {
-			channelsForShard[i] = make(chan pb.ReportResponse)
+////////////// ORDER SERVER STATE MUTATORS
+
+// updateCommittedCuts updates both the GSN and committedCuts
+func (server *orderServer) updateCommittedCuts() {
+	for shardID := range server.shardIds.Iterable() {
+		// find smallest cut for shard i
+		for i := 0; i < server.numServersPerShard; i++ {
+			minCut := math.MaxInt64
+			for j := 0; j < server.numServersPerShard; j++ {
+				minCut = golib.Min(server.contestedCut[shardID][j][i], minCut)
+			}
+			previousCut := server.committedCut[int32(shardID)].Cut[i]
+			server.committedCut[int32(shardID)].Cut[i] = int32(minCut)
+			// update gsn
+			diff := int32(minCut) - previousCut
+			server.globalSequenceNum += diff
 		}
-		channels[shardID] = channelsForShard
 	}
-	return channels
+}
+
+// getShardsToFinalize returns all shardID's bound in this map that
+// are meant to commit in 0 cuts, and decrements all other bound
+// shardID's by one.
+func (server *orderServer) getShardsToFinalize() []int32 {
+	shardsToFinalize := make([]int32, 0)
+	for shardID, kCuts := range server.finalizeMap {
+		if kCuts == 0 {
+			shardsToFinalize = append(shardsToFinalize, shardID)
+			delete(server.finalizeMap, shardID)
+		} else {
+			server.finalizeMap[shardID]--
+		}
+
+	}
+	return shardsToFinalize
 }
 
 /**
@@ -112,33 +144,21 @@ Broadcasts the new CommittedCuts to data layer.
 CAUTION: THE CALLER MUST OBTAIN THE LOCK
 */
 func (server *orderServer) mergeContestedCuts() {
-	for shardID := range server.shardIds.Iterable() {
-		delta := 0
-
-		// find smallest cut for shard i
-		for i := 0; i < server.numServersPerShard; i++ {
-			minCut := math.MaxInt64
-			for j := 0; j < server.numServersPerShard; j++ {
-				minCut = golib.Min(server.contestedCut[shardID][j][i], minCut)
-			}
-
-			prevCut := server.committedCut[shardID][i]
-			server.committedCut[shardID][i] = minCut
-
-			delta += minCut - prevCut
-		}
-
-		// broadcast cuts
-		resp := pb.ReportResponse{
-			StartGlobalSequenceNum: int32(server.globalSequenceNum),
-			CommittedCuts:          golib.IntSliceToInt32Slice(server.committedCut[shardID]),
-			Finalized:              false,
-		}
-		for i := 0; i < server.numServersPerShard; i++ {
-			server.dataResponseChannels[shardID][i] <- resp
-		}
-
-		server.globalSequenceNum += delta
+	server.updateCommittedCuts()
+	shardsToFinalize := server.getShardsToFinalize()
+	// Keep track of shards that we have finalized so that we ignore pipelined requests
+	for _, sid := range shardsToFinalize {
+		server.finalizedShards.Add(sid)
+		server.deleteShard(sid)
+	}
+	// broadcast cuts
+	resp := pb.ReportResponse{
+		CommitedCuts: server.committedCut,
+		StartGSN:     server.globalSequenceNum,
+		Finalize:     shardsToFinalize,
+	}
+	for _, ch := range server.aggregatorResponseChannels {
+		ch <- resp
 	}
 }
 
@@ -160,12 +180,12 @@ func (server *orderServer) addShard(shardID int) {
 	defer server.mu.Unlock()
 
 	server.shardIds.Add(shardID)
-	server.committedCut[shardID] = make(Cut, server.numServersPerShard)
+	server.committedCut[int32(shardID)] = &pb.Cut{
+		Cut: make([]int32, server.numServersPerShard),
+	}
 	server.contestedCut[shardID] = make(ShardCuts, server.numServersPerShard)
-	server.dataResponseChannels[shardID] = make([]chan pb.ReportResponse, server.numServersPerShard)
 
 	for i := 0; i < server.numServersPerShard; i++ {
-		server.dataResponseChannels[shardID][i] = make(chan pb.ReportResponse)
 		server.contestedCut[shardID][i] = make(Cut, server.numServersPerShard)
 	}
 }
@@ -178,41 +198,21 @@ Does nothing if the shardID does not exist.
 	the data layer or operator of this deletion.
 @returns Whether or not this shard existed.
 
-This operation acquires a writer lock.
+NOTE: CALLER MUST ACQUIRE WRITE LOCK
 */
-func (server *orderServer) deleteShard(shardID int) bool {
-	//Use read lock to determine if deleting is necessary
-	server.mu.RLock()
-	exists := server.shardIds.Contains(shardID)
-	server.mu.RUnlock()
+func (server *orderServer) deleteShard(shardID int32) bool {
+	exists := server.shardIds.Contains(int(shardID))
 	if !exists {
 		return false //Do not attempt to delete a shard that was already deleted
 	}
 
-	server.mu.Lock()
-	defer server.mu.Unlock()
-
 	// Delete the shard from cuts. A gesture to signify to Raft log that the shard is deleted.
 	// Meaningless to others unless a cut with this deletion is committed (consensus is reached).
 	delete(server.committedCut, shardID)
-	delete(server.contestedCut, shardID)
+	delete(server.contestedCut, int(shardID))
 
 	// Cleanup channels used for data layer communication
-	server.shardIds.Remove(shardID)
-
-	// Notify the relevant data replicas that they have been finalized, then close the channels
-	terminationMessage := pb.ReportResponse{Finalized: true}
-	for i := 0; i < server.numServersPerShard; i++ {
-		server.dataResponseChannels[shardID][i] <- terminationMessage
-		close(server.dataResponseChannels[shardID][i])
-	}
-	delete(server.dataResponseChannels, shardID)
-
-	// Notify blocked channel
-	finalizationC, exists := server.finalizationResponseChannels[int32(shardID)]
-	if exists {
-		close(finalizationC)
-	}
+	server.shardIds.Remove(int(shardID))
 	return true
 }
 
@@ -222,19 +222,21 @@ func (server *orderServer) deleteShard(shardID int) bool {
 Reports final cuts to the data layer periodically. Reads from ResponseChannels and feeds into the stream.
 */
 func (server *orderServer) reportResponseRoutine(stream pb.Order_ReportServer, req *pb.ReportRequest) {
-	shardID := int(req.ShardID)
-	num := req.ReplicaID
+	// For every shardID that we have not seen before, we should generate state and stuff
+	for shardID := range req.Shards {
+		// addShard already checks to see if shardID exists
+		server.addShard(int(shardID))
+	}
 
-	//Always attempt to add shard. Does nothing if shard already exists.
-	server.addShard(shardID)
-	//send response
-	for response := range server.dataResponseChannels[shardID][num] {
+	// We serve responses from this channel back to the aggregator
+	ch := make(chan pb.ReportResponse)
+	server.aggregatorResponseChannels = append(server.aggregatorResponseChannels, ch)
+	for response := range ch {
 		err := stream.Send(&response)
 		if err != nil {
 			logger.Panicf(err.Error())
 		}
 	}
-	logger.Printf(fmt.Sprintf("Ordering finalizing data replica %d in shard %d", num, shardID))
 }
 
 /**
@@ -254,6 +256,7 @@ func (server *orderServer) proposalRaftBatch() {
 			continue
 		}
 		// propose a batch operation to raft
+		// TODO: only propose a batch operation if we have seen some change in state?
 		batchReq := &pb.ReportRequest{Batch: true}
 		marshaledReq, err := proto.Marshal(batchReq)
 		if err != nil {
@@ -261,6 +264,21 @@ func (server *orderServer) proposalRaftBatch() {
 		}
 		server.rc.proposeC <- marshaledReq
 	}
+}
+
+func (server *orderServer) updateFinalizationMap(shardsToFinalize map[int32]int32) {
+	for shardID, kCuts := range shardsToFinalize {
+		server.finalizeMap[shardID] = kCuts
+	}
+}
+
+func (server *orderServer) respondToFinalizeChannels(shardsToFinalize map[int32]int32) {
+	for shardID := range shardsToFinalize {
+		if ch, ok := server.finalizationResponseChannels[shardID]; ok {
+			close(ch)
+		}
+	}
+
 }
 
 ////////////////////// RAFT FUNCTIONS
@@ -282,10 +300,9 @@ func (server *orderServer) listenForRaftCommits() {
 
 		// ReportRequests can take two actions -- one is where we decide upon a shard cut.
 		// The other action is if we decide on finalizing a particular shard.
-		if req.Finalized {
-			finalizedShardID := int(req.ShardID)
-			server.finalizationResponseChannels[req.ShardID] <- struct{}{}
-			server.deleteShard(finalizedShardID)
+		if req.Finalize != nil {
+			server.updateFinalizationMap(req.Finalize)
+			server.respondToFinalizeChannels(req.Finalize)
 			continue
 		} else if req.Batch {
 			// req is a request to batch and send the global state to data shards
@@ -293,25 +310,18 @@ func (server *orderServer) listenForRaftCommits() {
 			server.mergeContestedCuts()
 			server.mu.Unlock()
 		} else {
-			// req is a set of proposed updates to the global state
-			// TODO: ReportRequest should ideally be a map
-			cut := make(Cut, server.numServersPerShard)
-			for i := 0; i < len(cut); i++ {
-				cut[i] = int(req.TentativeCut[i])
-			}
-
 			// Update the global state
 			server.mu.Lock()
-			for i := 0; i < server.numServersPerShard; i++ {
-				prior := server.contestedCut[int(req.ShardID)][int(req.ReplicaID)][i]
-				server.contestedCut[int(req.ShardID)][int(req.ReplicaID)][i] = golib.Max(prior, cut[i])
+			for shardID, replicaCuts := range req.Shards {
+				for replicaID, cut := range replicaCuts.Replicas {
+					for i := 0; i < server.numServersPerShard; i++ {
+						prior := server.contestedCut[int(shardID)][int(replicaID)][i]
+						server.contestedCut[int(shardID)][int(replicaID)][i] = golib.Max(prior, int(cut.Cut[i]))
+					}
+				}
 			}
 			server.mu.Unlock()
 		}
-		// set the new state
-		server.mu.Lock()
-		server.logNum = int(entry.Index) + 1
-		server.mu.Unlock()
 	}
 }
 
@@ -325,7 +335,6 @@ func (server *orderServer) getState() orderServerState {
 		server.committedCut,
 		server.contestedCut,
 		server.globalSequenceNum,
-		server.logNum,
 		server.shardIds,
 	}
 }
@@ -341,25 +350,8 @@ func (server *orderServer) loadState(state *orderServerState) {
 	server.committedCut = state.committedCut
 	server.contestedCut = state.contestedCut
 	server.globalSequenceNum = state.globalSequenceNum
-	server.logNum = state.logNum
 
-	deleted := server.shardIds.Difference(state.shardIds)
-	added := state.shardIds.Difference(server.shardIds)
-
-	//delete channels
-	for shardID := range deleted.Iterable() {
-		for i := 0; i < server.numServersPerShard; i++ {
-			close(server.dataResponseChannels[shardID][i])
-		}
-		delete(server.dataResponseChannels, shardID)
-	}
-	//add channels
-	for shardID := range added.Iterable() {
-		server.dataResponseChannels[shardID] = make([]chan pb.ReportResponse, server.numServersPerShard)
-		for i := 0; i < server.numServersPerShard; i++ {
-			server.dataResponseChannels[shardID][i] = make(chan pb.ReportResponse)
-		}
-	}
+	// TODO: Update loadState
 
 	server.shardIds = state.shardIds
 }

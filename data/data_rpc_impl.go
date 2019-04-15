@@ -22,7 +22,7 @@ func (server *dataServer) Append(c context.Context, req *pb.AppendRequest) (*pb.
 		cid:        req.Cid,
 		csn:        req.Csn,
 		record:     req.Record,
-		commitResp: make(chan int),
+		commitResp: make(chan int32),
 	}
 	server.serverBuffers[server.replicaID] = append(server.serverBuffers[server.replicaID], *r)
 	server.mu.Unlock()
@@ -38,7 +38,7 @@ func (server *dataServer) Append(c context.Context, req *pb.AppendRequest) (*pb.
 	if !ok {
 		return nil, errors.New("append request failed due to shard finalization. Please retry the append operation at a different shard")
 	}
-	return &pb.AppendResponse{Csn: r.csn, Gsn: int32(gsn)}, nil
+	return &pb.AppendResponse{Csn: r.csn, Gsn: gsn}, nil
 }
 
 func (server *dataServer) Replicate(stream pb.Data_ReplicateServer) error {

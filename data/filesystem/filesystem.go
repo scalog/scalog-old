@@ -2,6 +2,7 @@ package filesystem
 
 import (
 	"bufio"
+	"fmt"
 	"os"
 	"strconv"
 
@@ -39,8 +40,8 @@ func New(volumePath string) RecordStorage {
 }
 
 // WriteLog writes to stable storage via a buffer
-func (f *RecordStorage) WriteLog(gsn int, record string) {
-	_, err := f.writer.WriteString(strconv.Itoa(gsn) + "\t" + record + "\n")
+func (f *RecordStorage) WriteLog(gsn int32, record string) {
+	_, err := f.writer.WriteString(fmt.Sprintf("%d\t%s\n", gsn, record))
 	if err != nil {
 		panic(err)
 	}

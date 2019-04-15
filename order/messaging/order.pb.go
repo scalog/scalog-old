@@ -8,6 +8,8 @@ import (
 	fmt "fmt"
 	proto "github.com/golang/protobuf/proto"
 	grpc "google.golang.org/grpc"
+	codes "google.golang.org/grpc/codes"
+	status "google.golang.org/grpc/status"
 	math "math"
 )
 
@@ -22,14 +24,93 @@ var _ = math.Inf
 // proto package needs to be updated.
 const _ = proto.ProtoPackageIsVersion3 // please upgrade the proto package
 
+type Cut struct {
+	// Array of len numReplicas
+	Cut                  []int32  `protobuf:"varint,1,rep,packed,name=cut,proto3" json:"cut,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *Cut) Reset()         { *m = Cut{} }
+func (m *Cut) String() string { return proto.CompactTextString(m) }
+func (*Cut) ProtoMessage()    {}
+func (*Cut) Descriptor() ([]byte, []int) {
+	return fileDescriptor_f8af3e412e3326d2, []int{0}
+}
+
+func (m *Cut) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_Cut.Unmarshal(m, b)
+}
+func (m *Cut) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_Cut.Marshal(b, m, deterministic)
+}
+func (m *Cut) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_Cut.Merge(m, src)
+}
+func (m *Cut) XXX_Size() int {
+	return xxx_messageInfo_Cut.Size(m)
+}
+func (m *Cut) XXX_DiscardUnknown() {
+	xxx_messageInfo_Cut.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_Cut proto.InternalMessageInfo
+
+func (m *Cut) GetCut() []int32 {
+	if m != nil {
+		return m.Cut
+	}
+	return nil
+}
+
+type ShardView struct {
+	// Key: ReplicaID, Value: replica cuts
+	Replicas             map[int32]*Cut `protobuf:"bytes,1,rep,name=replicas,proto3" json:"replicas,omitempty" protobuf_key:"varint,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
+	XXX_NoUnkeyedLiteral struct{}       `json:"-"`
+	XXX_unrecognized     []byte         `json:"-"`
+	XXX_sizecache        int32          `json:"-"`
+}
+
+func (m *ShardView) Reset()         { *m = ShardView{} }
+func (m *ShardView) String() string { return proto.CompactTextString(m) }
+func (*ShardView) ProtoMessage()    {}
+func (*ShardView) Descriptor() ([]byte, []int) {
+	return fileDescriptor_f8af3e412e3326d2, []int{1}
+}
+
+func (m *ShardView) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_ShardView.Unmarshal(m, b)
+}
+func (m *ShardView) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_ShardView.Marshal(b, m, deterministic)
+}
+func (m *ShardView) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_ShardView.Merge(m, src)
+}
+func (m *ShardView) XXX_Size() int {
+	return xxx_messageInfo_ShardView.Size(m)
+}
+func (m *ShardView) XXX_DiscardUnknown() {
+	xxx_messageInfo_ShardView.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_ShardView proto.InternalMessageInfo
+
+func (m *ShardView) GetReplicas() map[int32]*Cut {
+	if m != nil {
+		return m.Replicas
+	}
+	return nil
+}
+
 type ReportRequest struct {
-	ShardID      int32   `protobuf:"varint,1,opt,name=shardID,proto3" json:"shardID,omitempty"`
-	ReplicaID    int32   `protobuf:"varint,2,opt,name=replicaID,proto3" json:"replicaID,omitempty"`
-	TentativeCut []int32 `protobuf:"varint,3,rep,packed,name=tentativeCut,proto3" json:"tentativeCut,omitempty"`
-	// True only if the ordering layer wishes to propose a finalization of this particular shard
-	Finalized bool `protobuf:"varint,4,opt,name=finalized,proto3" json:"finalized,omitempty"`
+	// Key: ShardID, Value: Shard cuts
+	Shards map[int32]*ShardView `protobuf:"bytes,1,rep,name=shards,proto3" json:"shards,omitempty" protobuf_key:"varint,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
+	// Non-nil only if the ordering layer wishes to propose a finalization these particular shards after k cuts
+	Finalize map[int32]int32 `protobuf:"bytes,2,rep,name=finalize,proto3" json:"finalize,omitempty" protobuf_key:"varint,1,opt,name=key,proto3" protobuf_val:"varint,2,opt,name=value,proto3"`
 	// True if this is a request to batch and send the committedcuts
-	Batch                bool     `protobuf:"varint,5,opt,name=batch,proto3" json:"batch,omitempty"`
+	Batch                bool     `protobuf:"varint,3,opt,name=batch,proto3" json:"batch,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
 	XXX_sizecache        int32    `json:"-"`
@@ -39,7 +120,7 @@ func (m *ReportRequest) Reset()         { *m = ReportRequest{} }
 func (m *ReportRequest) String() string { return proto.CompactTextString(m) }
 func (*ReportRequest) ProtoMessage()    {}
 func (*ReportRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_f8af3e412e3326d2, []int{0}
+	return fileDescriptor_f8af3e412e3326d2, []int{2}
 }
 
 func (m *ReportRequest) XXX_Unmarshal(b []byte) error {
@@ -60,32 +141,18 @@ func (m *ReportRequest) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_ReportRequest proto.InternalMessageInfo
 
-func (m *ReportRequest) GetShardID() int32 {
+func (m *ReportRequest) GetShards() map[int32]*ShardView {
 	if m != nil {
-		return m.ShardID
-	}
-	return 0
-}
-
-func (m *ReportRequest) GetReplicaID() int32 {
-	if m != nil {
-		return m.ReplicaID
-	}
-	return 0
-}
-
-func (m *ReportRequest) GetTentativeCut() []int32 {
-	if m != nil {
-		return m.TentativeCut
+		return m.Shards
 	}
 	return nil
 }
 
-func (m *ReportRequest) GetFinalized() bool {
+func (m *ReportRequest) GetFinalize() map[int32]int32 {
 	if m != nil {
-		return m.Finalized
+		return m.Finalize
 	}
-	return false
+	return nil
 }
 
 func (m *ReportRequest) GetBatch() bool {
@@ -96,10 +163,12 @@ func (m *ReportRequest) GetBatch() bool {
 }
 
 type ReportResponse struct {
-	StartGlobalSequenceNum int32   `protobuf:"varint,1,opt,name=startGlobalSequenceNum,proto3" json:"startGlobalSequenceNum,omitempty"`
-	CommittedCuts          []int32 `protobuf:"varint,2,rep,packed,name=committedCuts,proto3" json:"committedCuts,omitempty"`
-	// True only if the ordering layer is finalizing this data replica
-	Finalized            bool     `protobuf:"varint,3,opt,name=finalized,proto3" json:"finalized,omitempty"`
+	// Key: ShardID, Value: Commited cuts
+	CommitedCuts map[int32]*Cut `protobuf:"bytes,1,rep,name=commitedCuts,proto3" json:"commitedCuts,omitempty" protobuf_key:"varint,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
+	// GSN to start computing at
+	StartGSN int32 `protobuf:"varint,2,opt,name=startGSN,proto3" json:"startGSN,omitempty"`
+	// Array of shards that have been finalized in this batch
+	Finalize             []int32  `protobuf:"varint,3,rep,packed,name=finalize,proto3" json:"finalize,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
 	XXX_sizecache        int32    `json:"-"`
@@ -109,7 +178,7 @@ func (m *ReportResponse) Reset()         { *m = ReportResponse{} }
 func (m *ReportResponse) String() string { return proto.CompactTextString(m) }
 func (*ReportResponse) ProtoMessage()    {}
 func (*ReportResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_f8af3e412e3326d2, []int{1}
+	return fileDescriptor_f8af3e412e3326d2, []int{3}
 }
 
 func (m *ReportResponse) XXX_Unmarshal(b []byte) error {
@@ -130,25 +199,25 @@ func (m *ReportResponse) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_ReportResponse proto.InternalMessageInfo
 
-func (m *ReportResponse) GetStartGlobalSequenceNum() int32 {
+func (m *ReportResponse) GetCommitedCuts() map[int32]*Cut {
 	if m != nil {
-		return m.StartGlobalSequenceNum
-	}
-	return 0
-}
-
-func (m *ReportResponse) GetCommittedCuts() []int32 {
-	if m != nil {
-		return m.CommittedCuts
+		return m.CommitedCuts
 	}
 	return nil
 }
 
-func (m *ReportResponse) GetFinalized() bool {
+func (m *ReportResponse) GetStartGSN() int32 {
 	if m != nil {
-		return m.Finalized
+		return m.StartGSN
 	}
-	return false
+	return 0
+}
+
+func (m *ReportResponse) GetFinalize() []int32 {
+	if m != nil {
+		return m.Finalize
+	}
+	return nil
 }
 
 type RegisterRequest struct {
@@ -163,7 +232,7 @@ func (m *RegisterRequest) Reset()         { *m = RegisterRequest{} }
 func (m *RegisterRequest) String() string { return proto.CompactTextString(m) }
 func (*RegisterRequest) ProtoMessage()    {}
 func (*RegisterRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_f8af3e412e3326d2, []int{2}
+	return fileDescriptor_f8af3e412e3326d2, []int{4}
 }
 
 func (m *RegisterRequest) XXX_Unmarshal(b []byte) error {
@@ -208,7 +277,7 @@ func (m *RegisterResponse) Reset()         { *m = RegisterResponse{} }
 func (m *RegisterResponse) String() string { return proto.CompactTextString(m) }
 func (*RegisterResponse) ProtoMessage()    {}
 func (*RegisterResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_f8af3e412e3326d2, []int{3}
+	return fileDescriptor_f8af3e412e3326d2, []int{5}
 }
 
 func (m *RegisterResponse) XXX_Unmarshal(b []byte) error {
@@ -230,20 +299,18 @@ func (m *RegisterResponse) XXX_DiscardUnknown() {
 var xxx_messageInfo_RegisterResponse proto.InternalMessageInfo
 
 type FinalizeRequest struct {
-	// Array of shards to finalize
-	ShardIDs []int32 `protobuf:"varint,1,rep,packed,name=shardIDs,proto3" json:"shardIDs,omitempty"`
-	// Finalize these shards after [finalizeAfterCuts] more cuts
-	FinalizeAfterCuts    int32    `protobuf:"varint,2,opt,name=finalizeAfterCuts,proto3" json:"finalizeAfterCuts,omitempty"`
-	XXX_NoUnkeyedLiteral struct{} `json:"-"`
-	XXX_unrecognized     []byte   `json:"-"`
-	XXX_sizecache        int32    `json:"-"`
+	// Array of shards to finalize after k cuts
+	Shards               map[int32]int32 `protobuf:"bytes,1,rep,name=shards,proto3" json:"shards,omitempty" protobuf_key:"varint,1,opt,name=key,proto3" protobuf_val:"varint,2,opt,name=value,proto3"`
+	XXX_NoUnkeyedLiteral struct{}        `json:"-"`
+	XXX_unrecognized     []byte          `json:"-"`
+	XXX_sizecache        int32           `json:"-"`
 }
 
 func (m *FinalizeRequest) Reset()         { *m = FinalizeRequest{} }
 func (m *FinalizeRequest) String() string { return proto.CompactTextString(m) }
 func (*FinalizeRequest) ProtoMessage()    {}
 func (*FinalizeRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_f8af3e412e3326d2, []int{4}
+	return fileDescriptor_f8af3e412e3326d2, []int{6}
 }
 
 func (m *FinalizeRequest) XXX_Unmarshal(b []byte) error {
@@ -264,18 +331,11 @@ func (m *FinalizeRequest) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_FinalizeRequest proto.InternalMessageInfo
 
-func (m *FinalizeRequest) GetShardIDs() []int32 {
+func (m *FinalizeRequest) GetShards() map[int32]int32 {
 	if m != nil {
-		return m.ShardIDs
+		return m.Shards
 	}
 	return nil
-}
-
-func (m *FinalizeRequest) GetFinalizeAfterCuts() int32 {
-	if m != nil {
-		return m.FinalizeAfterCuts
-	}
-	return 0
 }
 
 type FinalizeResponse struct {
@@ -288,7 +348,7 @@ func (m *FinalizeResponse) Reset()         { *m = FinalizeResponse{} }
 func (m *FinalizeResponse) String() string { return proto.CompactTextString(m) }
 func (*FinalizeResponse) ProtoMessage()    {}
 func (*FinalizeResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_f8af3e412e3326d2, []int{5}
+	return fileDescriptor_f8af3e412e3326d2, []int{7}
 }
 
 func (m *FinalizeResponse) XXX_Unmarshal(b []byte) error {
@@ -310,41 +370,56 @@ func (m *FinalizeResponse) XXX_DiscardUnknown() {
 var xxx_messageInfo_FinalizeResponse proto.InternalMessageInfo
 
 func init() {
+	proto.RegisterType((*Cut)(nil), "messaging.Cut")
+	proto.RegisterType((*ShardView)(nil), "messaging.ShardView")
+	proto.RegisterMapType((map[int32]*Cut)(nil), "messaging.ShardView.ReplicasEntry")
 	proto.RegisterType((*ReportRequest)(nil), "messaging.ReportRequest")
+	proto.RegisterMapType((map[int32]int32)(nil), "messaging.ReportRequest.FinalizeEntry")
+	proto.RegisterMapType((map[int32]*ShardView)(nil), "messaging.ReportRequest.ShardsEntry")
 	proto.RegisterType((*ReportResponse)(nil), "messaging.ReportResponse")
+	proto.RegisterMapType((map[int32]*Cut)(nil), "messaging.ReportResponse.CommitedCutsEntry")
 	proto.RegisterType((*RegisterRequest)(nil), "messaging.RegisterRequest")
 	proto.RegisterType((*RegisterResponse)(nil), "messaging.RegisterResponse")
 	proto.RegisterType((*FinalizeRequest)(nil), "messaging.FinalizeRequest")
+	proto.RegisterMapType((map[int32]int32)(nil), "messaging.FinalizeRequest.ShardsEntry")
 	proto.RegisterType((*FinalizeResponse)(nil), "messaging.FinalizeResponse")
 }
 
 func init() { proto.RegisterFile("messaging/order.proto", fileDescriptor_f8af3e412e3326d2) }
 
 var fileDescriptor_f8af3e412e3326d2 = []byte{
-	// 364 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xa4, 0x92, 0xbd, 0x4e, 0xe3, 0x40,
-	0x10, 0xc7, 0xb3, 0xc9, 0x39, 0x97, 0x8c, 0x2e, 0x97, 0xbb, 0xd5, 0xdd, 0x69, 0xcf, 0x50, 0x44,
-	0x16, 0x85, 0x0b, 0x14, 0x10, 0x48, 0xf4, 0x28, 0x01, 0x94, 0x06, 0x24, 0x53, 0x52, 0x6d, 0xec,
-	0x49, 0x62, 0xc9, 0x5f, 0xec, 0x8e, 0x29, 0x78, 0x06, 0xde, 0x81, 0xf7, 0xe2, 0x69, 0x90, 0xbf,
-	0x62, 0x6d, 0x08, 0x15, 0xe5, 0xce, 0x7f, 0xf5, 0x9b, 0xdf, 0x8c, 0x06, 0xfe, 0xc6, 0xa8, 0xb5,
-	0x5c, 0x87, 0xc9, 0xfa, 0x24, 0x55, 0x01, 0xaa, 0x69, 0xa6, 0x52, 0x4a, 0xf9, 0x70, 0x5b, 0x76,
-	0x5e, 0x19, 0x8c, 0x3c, 0xcc, 0x52, 0x45, 0x1e, 0x3e, 0xe6, 0xa8, 0x89, 0x0b, 0xf8, 0xae, 0x37,
-	0x52, 0x05, 0x8b, 0xb9, 0x60, 0x13, 0xe6, 0x5a, 0x5e, 0xf3, 0xe4, 0x87, 0x30, 0x54, 0x98, 0x45,
-	0xa1, 0x2f, 0x17, 0x73, 0xd1, 0x2d, 0xb3, 0xb6, 0xc0, 0x1d, 0xf8, 0x41, 0x98, 0x90, 0xa4, 0xf0,
-	0x09, 0x67, 0x39, 0x89, 0xde, 0xa4, 0xe7, 0x5a, 0x9e, 0x51, 0x2b, 0x08, 0xab, 0x30, 0x91, 0x51,
-	0xf8, 0x8c, 0x81, 0xf8, 0x36, 0x61, 0xee, 0xc0, 0x6b, 0x0b, 0xfc, 0x0f, 0x58, 0x4b, 0x49, 0xfe,
-	0x46, 0x58, 0x65, 0x52, 0x3d, 0x9c, 0x17, 0x06, 0x3f, 0x1b, 0x43, 0x9d, 0xa5, 0x89, 0x46, 0x7e,
-	0x01, 0xff, 0x34, 0x49, 0x45, 0x37, 0x51, 0xba, 0x94, 0xd1, 0x7d, 0x21, 0x9e, 0xf8, 0x78, 0x9b,
-	0xc7, 0xb5, 0xf1, 0x27, 0x29, 0x3f, 0x82, 0x91, 0x9f, 0xc6, 0x71, 0x48, 0x84, 0xc1, 0x2c, 0x27,
-	0x2d, 0xba, 0xa5, 0xa3, 0x59, 0x34, 0x25, 0x7b, 0x3b, 0x92, 0xce, 0x02, 0xc6, 0x1e, 0xae, 0x43,
-	0x4d, 0xa8, 0xbe, 0xb8, 0x31, 0x87, 0xc3, 0xaf, 0x16, 0x55, 0x8d, 0xe6, 0x3c, 0xc0, 0xf8, 0xba,
-	0xee, 0xd5, 0xe0, 0x6d, 0x18, 0xd4, 0x3c, 0x2d, 0x58, 0x29, 0xbc, 0x7d, 0xf3, 0x63, 0xf8, 0xdd,
-	0xa8, 0x5d, 0xae, 0x08, 0x55, 0x3d, 0x55, 0xd1, 0xe8, 0x63, 0x50, 0x34, 0x6c, 0xe1, 0x55, 0xc3,
-	0xb3, 0x37, 0x06, 0xd6, 0x5d, 0x71, 0x1b, 0x7c, 0x06, 0xfd, 0x6a, 0xcf, 0x5c, 0x4c, 0xb7, 0x07,
-	0x32, 0x35, 0x8e, 0xc3, 0xfe, 0xbf, 0x27, 0xa9, 0xcd, 0x3b, 0x2e, 0x3b, 0x65, 0xfc, 0x0a, 0x06,
-	0xcd, 0x4c, 0xdc, 0x36, 0x3e, 0x1b, 0x3b, 0xb3, 0x0f, 0xf6, 0x66, 0x0d, 0xaa, 0xc0, 0x34, 0xa6,
-	0x06, 0x66, 0x67, 0x37, 0x06, 0x66, 0x77, 0x34, 0xa7, 0xb3, 0xec, 0x97, 0xf7, 0x7e, 0xfe, 0x1e,
-	0x00, 0x00, 0xff, 0xff, 0x47, 0x94, 0xb4, 0x37, 0x08, 0x03, 0x00, 0x00,
+	// 496 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xa4, 0x54, 0xdd, 0x6e, 0xd3, 0x30,
+	0x14, 0x9e, 0x1b, 0xa5, 0xa4, 0xa7, 0x6c, 0x2b, 0x47, 0x45, 0x04, 0xc3, 0x45, 0x15, 0x4d, 0xa8,
+	0x02, 0x29, 0xa0, 0x72, 0xc3, 0x9f, 0x76, 0x41, 0x36, 0x50, 0x85, 0x44, 0xa5, 0x4c, 0xe2, 0x3e,
+	0x6b, 0x4d, 0x17, 0xad, 0x6d, 0x8a, 0xed, 0x80, 0xca, 0x33, 0xf0, 0x00, 0xbc, 0x08, 0x2f, 0xc3,
+	0x23, 0xf0, 0x14, 0xc8, 0x89, 0x9d, 0xc6, 0x25, 0x15, 0x17, 0xbb, 0xab, 0xed, 0xef, 0x7c, 0xe7,
+	0x3b, 0xdf, 0xf9, 0x1a, 0xb8, 0xbb, 0x64, 0x42, 0x24, 0xf3, 0x74, 0x35, 0x7f, 0x9a, 0xf1, 0x19,
+	0xe3, 0xe1, 0x9a, 0x67, 0x32, 0xc3, 0x4e, 0x75, 0x1d, 0xdc, 0x03, 0x27, 0xca, 0x25, 0xf6, 0xc0,
+	0x99, 0xe6, 0xd2, 0x27, 0x03, 0x67, 0xe8, 0xc6, 0xea, 0x67, 0xf0, 0x93, 0x40, 0xe7, 0xe2, 0x2a,
+	0xe1, 0xb3, 0x4f, 0x29, 0xfb, 0x86, 0xa7, 0xe0, 0x71, 0xb6, 0x5e, 0xa4, 0xd3, 0x44, 0x14, 0xa0,
+	0xee, 0x28, 0x08, 0x2b, 0x92, 0xb0, 0xc2, 0x85, 0xb1, 0x06, 0x9d, 0xaf, 0x24, 0xdf, 0xc4, 0x55,
+	0x0d, 0xfd, 0x00, 0x87, 0xd6, 0x93, 0x6a, 0x78, 0xcd, 0x36, 0x3e, 0x19, 0x10, 0xd5, 0xf0, 0x9a,
+	0x6d, 0xf0, 0x04, 0xdc, 0xaf, 0xc9, 0x22, 0x67, 0x7e, 0x6b, 0x40, 0x86, 0xdd, 0xd1, 0x51, 0x8d,
+	0x3f, 0xca, 0x65, 0x5c, 0x3e, 0xbe, 0x6a, 0xbd, 0x20, 0xc1, 0xaf, 0x56, 0xc1, 0x96, 0x71, 0x19,
+	0xb3, 0x2f, 0x39, 0x13, 0x12, 0xdf, 0x40, 0x5b, 0x28, 0x0d, 0x46, 0xdc, 0x49, 0xad, 0xd8, 0x42,
+	0x96, 0x52, 0xb5, 0x3c, 0x5d, 0x83, 0x6f, 0xc1, 0xfb, 0x9c, 0xae, 0x92, 0x45, 0xfa, 0x5d, 0x35,
+	0x57, 0xf5, 0x8f, 0xf6, 0xd6, 0xbf, 0xd3, 0x40, 0x3d, 0xa0, 0xa9, 0xc3, 0x3e, 0xb8, 0x97, 0x89,
+	0x9c, 0x5e, 0xf9, 0xce, 0x80, 0x0c, 0xbd, 0xb8, 0x3c, 0xd0, 0x09, 0x74, 0x6b, 0x0d, 0x1b, 0x86,
+	0x7e, 0x6c, 0x0f, 0xdd, 0x6f, 0x32, 0xb5, 0x36, 0x3a, 0x7d, 0x0d, 0x87, 0x96, 0x82, 0x06, 0xca,
+	0x7e, 0x9d, 0xd2, 0xad, 0xfb, 0xf6, 0x87, 0xc0, 0x91, 0x99, 0x46, 0xac, 0xb3, 0x95, 0x60, 0x38,
+	0x81, 0xdb, 0xd3, 0x6c, 0xb9, 0x4c, 0x25, 0x9b, 0x45, 0xb9, 0x34, 0xf6, 0x3d, 0x69, 0x18, 0xbf,
+	0x2c, 0x08, 0xa3, 0x1a, 0xba, 0xf4, 0xc0, 0x22, 0x40, 0x0a, 0x9e, 0x90, 0x09, 0x97, 0xef, 0x2f,
+	0x3e, 0x6a, 0x01, 0xd5, 0x59, 0xbd, 0x55, 0x3e, 0x3b, 0x45, 0xd2, 0xaa, 0x33, 0x9d, 0xc0, 0x9d,
+	0x7f, 0xa8, 0x6f, 0x14, 0x92, 0x31, 0x1c, 0xc7, 0x6c, 0x9e, 0x0a, 0xc9, 0xb8, 0x49, 0x89, 0x0f,
+	0xb7, 0x8a, 0x8d, 0x8f, 0xcf, 0x34, 0xa5, 0x39, 0xe2, 0x43, 0xe8, 0xe8, 0xa8, 0x8e, 0xcf, 0xb4,
+	0xec, 0xed, 0x45, 0x80, 0xd0, 0xdb, 0x52, 0x95, 0x3e, 0x04, 0x3f, 0x08, 0x1c, 0x9b, 0x4d, 0x18,
+	0xfe, 0xd3, 0x9d, 0x14, 0xd6, 0x53, 0xb4, 0x83, 0x6d, 0xca, 0x21, 0x7d, 0xf9, 0xbf, 0xb4, 0xec,
+	0x5f, 0x2d, 0x42, 0x6f, 0xdb, 0xa1, 0x94, 0x38, 0xfa, 0x4d, 0xc0, 0x9d, 0xa8, 0x7f, 0x3d, 0x46,
+	0xd0, 0x2e, 0xd7, 0x88, 0xfe, 0xbe, 0x60, 0xd3, 0xfb, 0x7b, 0x77, 0x1e, 0x1c, 0x0c, 0xc9, 0x33,
+	0x82, 0xe7, 0xe0, 0x19, 0x17, 0x90, 0x5a, 0x60, 0xcb, 0x65, 0xfa, 0xa0, 0xf1, 0xcd, 0x50, 0x29,
+	0x1a, 0xa3, 0xd4, 0xa2, 0xd9, 0x31, 0xc8, 0xa2, 0xd9, 0x1d, 0x2d, 0x38, 0xb8, 0x6c, 0x17, 0x5f,
+	0xb2, 0xe7, 0x7f, 0x03, 0x00, 0x00, 0xff, 0xff, 0x81, 0x38, 0x5b, 0x37, 0xe2, 0x04, 0x00, 0x00,
 }
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -426,6 +501,20 @@ type OrderServer interface {
 	Report(Order_ReportServer) error
 	Register(context.Context, *RegisterRequest) (*RegisterResponse, error)
 	Finalize(context.Context, *FinalizeRequest) (*FinalizeResponse, error)
+}
+
+// UnimplementedOrderServer can be embedded to have forward compatible implementations.
+type UnimplementedOrderServer struct {
+}
+
+func (*UnimplementedOrderServer) Report(srv Order_ReportServer) error {
+	return status.Errorf(codes.Unimplemented, "method Report not implemented")
+}
+func (*UnimplementedOrderServer) Register(ctx context.Context, req *RegisterRequest) (*RegisterResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Register not implemented")
+}
+func (*UnimplementedOrderServer) Finalize(ctx context.Context, req *FinalizeRequest) (*FinalizeResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Finalize not implemented")
 }
 
 func RegisterOrderServer(s *grpc.Server, srv OrderServer) {
