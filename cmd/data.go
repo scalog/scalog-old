@@ -54,6 +54,8 @@ func init() {
 
 	viper.SetDefault("name", "no-service-name")
 	viper.SetDefault("replica_count", "2")
+	// Batching interval in ms
+	viper.SetDefault("batch_interval", "1000")
 
 	// Load environment variables into Viper
 	viper.BindEnv("node_name")
@@ -61,6 +63,7 @@ func init() {
 	viper.BindEnv("namespace")
 	viper.BindEnv("pod_ip")
 	viper.BindEnv("replica_count")
+	viper.BindEnv("batch_interval")
 
 	shardGroup, replicaID, shardID := parsePodName(viper.GetString("name"))
 	viper.SetDefault("shardGroup", shardGroup)
