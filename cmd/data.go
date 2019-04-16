@@ -52,25 +52,21 @@ func init() {
 	// is called directly, e.g.:
 	// dataCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 
-	viper.SetDefault("name", "no-service-name")
-	viper.SetDefault("replica_count", "2")
-	// Batching interval in ms
-	viper.SetDefault("batch_interval", "1000")
-
 	// Load environment variables into Viper
-	viper.BindEnv("node_name")
-	viper.BindEnv("name")
-	viper.BindEnv("namespace")
-	viper.BindEnv("pod_ip")
-	viper.BindEnv("replica_count")
-	viper.BindEnv("batch_interval")
+	bindEnvVar("node_name")
+	bindEnvVar("name")
+	bindEnvVar("namespace")
+	bindEnvVar("pod_ip")
+	bindEnvVar("replica_count")
+	bindEnvVar("batch_interval")
 
+	// UGLY - We parse metainformation from the name of this pod, since Kubernetes cannot
+	// do it itself
 	shardGroup, replicaID, shardID := parsePodName(viper.GetString("name"))
-	viper.SetDefault("shardGroup", shardGroup)
-	viper.SetDefault("shardID", shardID)
-	viper.SetDefault("orderPort", 21024)
-	dataCmd.PersistentFlags().Int("id", replicaID, "Replica id")
-	viper.BindPFlag("id", dataCmd.PersistentFlags().Lookup("id"))
+	viper.Set("shardGroup", shardGroup)
+	viper.Set("shardID", shardID)
+	viper.Set("orderPort", 21024)
+	viper.Set("id", replicaID)
 }
 
 // dataCmd represents the data command
