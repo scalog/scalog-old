@@ -40,7 +40,6 @@ to quickly create a Cobra application.`,
 
 func init() {
 	rootCmd.AddCommand(orderCmd)
-
 	// Here you will define your flags and configuration settings.
 
 	// Cobra supports Persistent Flags which will work for this command
@@ -50,21 +49,15 @@ func init() {
 	// Cobra supports local flags which will only run when this command
 	// is called directly, e.g.:
 	// orderCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
-	orderCmd.PersistentFlags().Int("raftNodeID", 1, "ID of raft node in raft cluster")
-	viper.BindPFlag("raftNodeID", orderCmd.PersistentFlags().Lookup("raftNodeID"))
 
 	// Raft must listen on a port different than the one we serve gRPC requests on
-	viper.SetDefault("raftPort", 10088)
-	viper.SetDefault("raft_cluster_size", 2)
-	viper.SetDefault("replica_count", 2)
+	viper.Set("raftPort", "10088")
 
-	viper.BindEnv("name")
-	viper.BindEnv("namespace")
-	viper.BindEnv("pod_ip")
-	// The number of replicas running in the ordering layer
-	viper.BindEnv("raft_cluster_size")
-	// The number of replicas in each data shard
-	viper.BindEnv("replica_count")
-	// UID of this pod
-	viper.BindEnv("uid")
+	bindEnvVar("name")
+	bindEnvVar("namespace")
+	bindEnvVar("pod_ip")
+	bindEnvVar("raft_cluster_size")
+	bindEnvVar("replica_count")
+	bindEnvVar("uid")
+	bindEnvVar("batch_interval")
 }

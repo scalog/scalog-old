@@ -6,6 +6,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/spf13/viper"
+
 	"github.com/gogo/protobuf/proto"
 	"github.com/scalog/scalog/internal/pkg/golib"
 	"github.com/scalog/scalog/logger"
@@ -244,7 +246,8 @@ proposalRaftBatch periodically proposes that raft batch and send a globalCut
  to the data layer
 */
 func (server *orderServer) proposalRaftBatch() {
-	ticker := time.NewTicker(1000 * time.Millisecond) // todo remove hard-coded interval
+	interval := time.Duration(viper.GetInt("batch_interval"))
+	ticker := time.NewTicker(interval * time.Millisecond)
 	for range ticker.C {
 		if server.rc.node == nil {
 			continue

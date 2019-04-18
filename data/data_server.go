@@ -304,39 +304,26 @@ func (server *dataServer) setupOrderLayerComunication() {
 		panic(err)
 	}
 
-	sendTicker := time.NewTicker(20 * time.Millisecond) // TODO: Allow interval to be configurable
+	interval := time.Duration(viper.GetInt("batch_interval"))
+	sendTicker := time.NewTicker(interval * time.Millisecond)
 	go server.sendTentativeCutsToOrder(stream, sendTicker)
 	go server.receiveFinalizedCuts(stream, sendTicker)
 }
 
 // Forms a channel which writes to a specific pod on a specific pod ip
 func createIntershardPodConnection(podIP string, ch chan messaging.ReplicateRequest) {
-	connChannel := make(chan messaging.Data_ReplicateClient)
+	var conn *grpc.ClientConn
+	if viper.GetBool("localRun") {
+		conn = golib.ConnectTo(podIP)
+	} else {
+		conn = golib.ConnectTo(podIP + ":" + viper.GetString("port"))
+	}
 
-	go func() {
-		ticker := time.NewTicker(100 * time.Millisecond)
-		defer ticker.Stop()
-
-		for range ticker.C {
-			var conn *grpc.ClientConn
-			if viper.GetBool("localRun") {
-				conn = golib.ConnectTo(podIP)
-			} else {
-				conn = golib.ConnectTo(podIP + ":" + viper.GetString("port"))
-			}
-
-			client := messaging.NewDataClient(conn)
-			stream, err := client.Replicate(context.Background())
-			if err != nil {
-				logger.Printf("Failed to dial... Trying again")
-				continue
-			}
-			connChannel <- stream
-			return
-		}
-	}()
-
-	stream := <-connChannel
+	client := messaging.NewDataClient(conn)
+	stream, err := client.Replicate(context.Background())
+	if err != nil {
+		logger.Panicf("Couldn't create a conection with server replica")
+	}
 	logger.Printf("Successfully set up channels with " + podIP)
 
 	for req := range ch {
