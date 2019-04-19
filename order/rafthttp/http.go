@@ -138,6 +138,8 @@ func (h *pipelineHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	receivedBytes.WithLabelValues(types.ID(m.From).String()).Add(float64(len(b)))
 
+	//TODO unwrap m, send to leader channel
+
 	if err := h.r.Process(context.TODO(), m); err != nil {
 		switch v := err.(type) {
 		case writerToResponse:

@@ -8,7 +8,7 @@ import (
 
 	"github.com/spf13/viper"
 
-	"github.com/gogo/protobuf/proto"
+	"github.com/golang/protobuf/proto"
 	"github.com/scalog/scalog/internal/pkg/golib"
 	"github.com/scalog/scalog/logger"
 	pb "github.com/scalog/scalog/order/messaging"
@@ -64,14 +64,14 @@ type orderServerState struct {
 
 func newOrderServer(shardIds *golib.Set, numServersPerShard int) *orderServer {
 	return &orderServer{
-		committedCut:                 initCommittedCut(shardIds, numServersPerShard),
-		contestedCut:                 initContestedCut(shardIds, numServersPerShard),
-		finalizeMap:                  make(FinalizationMap),
-		finalizedShards:              golib.NewSet32(),
-		globalSequenceNum:            0,
-		shardIds:                     shardIds,
-		numServersPerShard:           numServersPerShard,
-		mu:                           sync.RWMutex{},
+		committedCut:       initCommittedCut(shardIds, numServersPerShard),
+		contestedCut:       initContestedCut(shardIds, numServersPerShard),
+		finalizeMap:        make(FinalizationMap),
+		finalizedShards:    golib.NewSet32(),
+		globalSequenceNum:  0,
+		shardIds:           shardIds,
+		numServersPerShard: numServersPerShard,
+		mu:                 sync.RWMutex{},
 		aggregatorResponseChannels:   make(ResponseChannels, 0),
 		finalizationResponseChannels: make(FinalizationResponseChannels),
 	}
@@ -260,12 +260,7 @@ func (server *orderServer) proposalRaftBatch() {
 		}
 		// propose a batch operation to raft
 		// TODO: only propose a batch operation if we have seen some change in state?
-		batchReq := &pb.ReportRequest{Batch: true}
-		marshaledReq, err := proto.Marshal(batchReq)
-		if err != nil {
-			logger.Panicf("Could not marshal batch request proposal")
-		}
-		server.rc.proposeC <- marshaledReq
+		server.rc.proposeC <- &pb.ReportRequest{Batch: true}
 	}
 }
 

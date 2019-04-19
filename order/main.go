@@ -31,7 +31,6 @@ func Start() {
 	)
 
 	id, peers := getRaftIndexPeerUrls()
-	// TODO: remove hard coded server shard count
 	server := newOrderServer(golib.NewSet(), viper.GetInt("replica_count"))
 	rc := newRaftNode(id, peers, false, server.getSnapshot)
 	server.rc = rc

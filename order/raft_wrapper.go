@@ -17,6 +17,7 @@ package order
 import (
 	"context"
 	"fmt"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -24,8 +25,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/golang/protobuf/proto"
+	"github.com/scalog/scalog/logger"
+
 	"github.com/scalog/scalog/internal/pkg/golib"
-	log "github.com/scalog/scalog/logger"
+	pb "github.com/scalog/scalog/order/messaging"
 
 	"go.etcd.io/etcd/etcdserver/api/rafthttp"
 	"go.etcd.io/etcd/etcdserver/api/snap"
@@ -42,9 +46,10 @@ import (
 
 // A key-value stream backed by raft
 type raftNode struct {
-	proposeC    chan []byte            // proposed messages (k,v)
+	proposeC    chan *pb.ReportRequest // proposed messages (k,v)
 	confChangeC chan raftpb.ConfChange // proposed cluster config changes
 	commitC     chan *raftpb.Entry     // entries committed to log (k,v)
+	leaderC     chan *pb.ReportRequest // messages forwarded to the leader (if this is the leader)
 	errorC      chan<- error           // errors from raft session
 
 	id          int      // client ID for raft session
@@ -86,14 +91,16 @@ var defaultSnapshotCount uint64 = 10000
 // current), then new log entries. To shutdown, close proposeC and read errorC.
 func newRaftNode(id int, peers []string, join bool, getSnapshot func() ([]byte, error)) *raftNode {
 
-	proposeC := make(chan []byte)
+	proposeC := make(chan *pb.ReportRequest)
 	commitC := make(chan *raftpb.Entry)
+	leaderC := make(chan *pb.ReportRequest)
 	errorC := make(chan error)
 
 	rc := &raftNode{
 		proposeC:    proposeC,
 		confChangeC: make(chan raftpb.ConfChange),
 		commitC:     commitC,
+		leaderC:     leaderC,
 		errorC:      errorC,
 		id:          id,
 		peers:       peers,
@@ -437,7 +444,13 @@ func (rc *raftNode) serveChannels() {
 					rc.proposeC = nil
 				} else {
 					// blocks until accepted by raft state machine
-					rc.node.Propose(context.TODO(), prop)
+					//TODO set forwarding byte if this isn't the leader
+
+					marshaledReq, err := proto.Marshal(prop)
+					if err != nil {
+						logger.Panicf("Could not marshal proposal; is it not a ReportRequest?")
+					}
+					rc.node.Propose(context.TODO(), marshaledReq)
 				}
 
 			case cc, ok := <-rc.confChangeC:
