@@ -1,4 +1,4 @@
-package golib
+package set64
 
 /**
 Copied from https://gist.github.com/bgadrian/cb8b9344d9c66571ef331a14eb7a2e80.
