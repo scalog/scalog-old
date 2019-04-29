@@ -30,8 +30,8 @@ import (
 
 	"github.com/scalog/scalog/internal/pkg/golib"
 	pb "github.com/scalog/scalog/order/messaging"
+	"github.com/scalog/scalog/order/rafthttp"
 
-	"go.etcd.io/etcd/etcdserver/api/rafthttp"
 	"go.etcd.io/etcd/etcdserver/api/snap"
 	stats "go.etcd.io/etcd/etcdserver/api/v2stats"
 	"go.etcd.io/etcd/pkg/fileutil"
@@ -46,11 +46,12 @@ import (
 
 // A key-value stream backed by raft
 type raftNode struct {
-	proposeC    chan *pb.ReportRequest // proposed messages (k,v)
-	confChangeC chan raftpb.ConfChange // proposed cluster config changes
-	commitC     chan *raftpb.Entry     // entries committed to log (k,v)
-	leaderC     chan *pb.ReportRequest // messages forwarded to the leader (if this is the leader)
-	errorC      chan<- error           // errors from raft session
+	proposeC    chan *pb.ReportResponse // proposed messages (k,v)
+	confChangeC chan raftpb.ConfChange  // proposed cluster config changes
+	toLeaderC   chan *pb.ReportRequest  // messages to forward to the leader
+	commitC     chan *pb.ReportResponse // entries committed to log (k,v)
+	leaderC     chan *pb.ReportRequest  // messages forwarded to the leader (if this is the leader)
+	errorC      chan<- error            // errors from raft session
 
 	id          int      // client ID for raft session
 	peers       []string // raft peer URLs
@@ -91,8 +92,9 @@ var defaultSnapshotCount uint64 = 10000
 // current), then new log entries. To shutdown, close proposeC and read errorC.
 func newRaftNode(id int, peers []string, join bool, getSnapshot func() ([]byte, error)) *raftNode {
 
-	proposeC := make(chan *pb.ReportRequest)
-	commitC := make(chan *raftpb.Entry)
+	proposeC := make(chan *pb.ReportResponse)
+	commitC := make(chan *pb.ReportResponse)
+	toLeaderC := make(chan *pb.ReportRequest)
 	leaderC := make(chan *pb.ReportRequest)
 	errorC := make(chan error)
 
@@ -100,6 +102,7 @@ func newRaftNode(id int, peers []string, join bool, getSnapshot func() ([]byte, 
 		proposeC:    proposeC,
 		confChangeC: make(chan raftpb.ConfChange),
 		commitC:     commitC,
+		toLeaderC:   toLeaderC,
 		leaderC:     leaderC,
 		errorC:      errorC,
 		id:          id,
@@ -180,8 +183,13 @@ func (rc *raftNode) publishEntries(ents []raftpb.Entry) bool {
 				// ignore empty messages
 				break
 			}
+			req := &pb.ReportResponse{}
+			if err := proto.Unmarshal(ents[i].Data, req); err != nil {
+				logger.Panicf("Could not unmarshal raft commit message")
+			}
+
 			select {
-			case rc.commitC <- &ents[i]:
+			case rc.commitC <- req:
 			case <-rc.stopc:
 				return false
 			}
@@ -437,22 +445,16 @@ func (rc *raftNode) serveChannels() {
 	go func() {
 		confChangeCount := uint64(0)
 
-		for rc.proposeC != nil && rc.confChangeC != nil {
+		for rc.proposeC != nil && rc.confChangeC != nil && rc.toLeaderC != nil {
 			select {
 			case prop, ok := <-rc.proposeC:
 				if !ok {
 					rc.proposeC = nil
 				} else {
-					// blocks until accepted by raft state machine
-					//TODO set forwarding byte if this isn't the leader
-
-					marshaledReq, err := proto.Marshal(prop)
-					if err != nil {
-						logger.Panicf("Could not marshal proposal; is it not a ReportRequest?")
-					}
-					rc.node.Propose(context.TODO(), marshaledReq)
+					rc.node.Propose(context.TODO(), marshal(prop))
 				}
-
+			case prop := <-rc.toLeaderC:
+				rc.forwardToLeader(prop)
 			case cc, ok := <-rc.confChangeC:
 				if !ok {
 					rc.confChangeC = nil
@@ -532,9 +534,83 @@ func (rc *raftNode) serveRaft() {
 	close(rc.httpdonec)
 }
 
+func (rc *raftNode) isLeader() bool {
+	rc.leaderMu.RLock()
+	defer rc.leaderMu.RUnlock()
+	return rc.leaderID == uint64(rc.id)
+}
+
+func marshal(msg proto.Message) []byte {
+	data, err := proto.Marshal(msg)
+	if err != nil {
+		logger.Panicf("Failed to marshal message")
+		return nil
+	}
+	return data
+}
+
+func (rc *raftNode) forwardToLeader(req *pb.ReportRequest) {
+	//send directly into leader channel if we're the leader
+	if rc.isLeader() {
+		rc.leaderC <- req
+		return
+	}
+
+	req.Forward = true
+	// Convert to bytes
+	data, err := proto.Marshal(req)
+	if err != nil {
+		logger.Panicf("Could not marshal proposal; is it not a ReportRequest?")
+	}
+
+	rc.leaderMu.RLock()
+	msg := raftpb.Message{
+		Type:    raftpb.MsgProp,
+		Entries: []raftpb.Entry{{Data: data}},
+		From:    uint64(rc.id),
+		To:      rc.leaderID,
+	}
+	rc.leaderMu.RUnlock()
+
+	rc.transport.Forward(msg)
+}
+
 func (rc *raftNode) Process(ctx context.Context, m raftpb.Message) error {
+	if m.Type == raftpb.MsgProp {
+		// Forward messages to leader
+		indicesToRemove := make([]int, len(m.Entries))
+		for i, entry := range m.Entries {
+			var req *pb.ReportRequest
+			if err := proto.Unmarshal(entry.Data, req); err != nil {
+				continue
+			}
+			if !req.Forward {
+				continue
+			}
+			indicesToRemove = append(indicesToRemove, i)
+			rc.leaderC <- req
+		}
+
+		// Remove entries forwarded
+		for _, index := range indicesToRemove {
+			m.Entries = sliceRemoveAtIndex(m.Entries, index)
+		}
+		if len(m.Entries) == 0 {
+			return nil
+		}
+	}
+
 	return rc.node.Step(ctx, m)
 }
 func (rc *raftNode) IsIDRemoved(id uint64) bool                           { return false }
 func (rc *raftNode) ReportUnreachable(id uint64)                          {}
 func (rc *raftNode) ReportSnapshot(id uint64, status raft.SnapshotStatus) {}
+
+/**
+Does not preserve order; swaps element with last, then shortens list length
+*/
+func sliceRemoveAtIndex(slice []raftpb.Entry, index int) []raftpb.Entry {
+	lastIndex := len(slice) - 1
+	slice[lastIndex], slice[index] = slice[index], slice[lastIndex]
+	return slice[:lastIndex]
+}

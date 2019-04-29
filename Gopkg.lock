@@ -326,10 +326,9 @@
 
 [[projects]]
   branch = "master"
-  digest = "1:d89ed4ed7a37311b4a9aa13930c08665e6c5a256de8c84969312afb6465b941b"
+  digest = "1:650412123977af3363f2a22b5a3edd7ce3f2081fc19f2daf82172324320b3a16"
   name = "go.etcd.io/etcd"
   packages = [
-    "etcdserver/api/rafthttp",
     "etcdserver/api/snap",
     "etcdserver/api/snap/snappb",
     "etcdserver/api/v2stats",
@@ -702,25 +701,33 @@
   analyzer-name = "dep"
   analyzer-version = 1
   input-imports = [
-    "github.com/gogo/protobuf/proto",
+    "github.com/coreos/go-semver/semver",
+    "github.com/coreos/pkg/capnslog",
+    "github.com/dustin/go-humanize",
     "github.com/golang/protobuf/proto",
     "github.com/mitchellh/go-homedir",
+    "github.com/prometheus/client_golang/prometheus",
     "github.com/spf13/cobra",
     "github.com/spf13/viper",
-    "go.etcd.io/etcd/etcdserver/api/rafthttp",
+    "github.com/xiang90/probing",
     "go.etcd.io/etcd/etcdserver/api/snap",
     "go.etcd.io/etcd/etcdserver/api/v2stats",
     "go.etcd.io/etcd/pkg/fileutil",
+    "go.etcd.io/etcd/pkg/httputil",
+    "go.etcd.io/etcd/pkg/ioutil",
+    "go.etcd.io/etcd/pkg/logutil",
+    "go.etcd.io/etcd/pkg/pbutil",
+    "go.etcd.io/etcd/pkg/transport",
     "go.etcd.io/etcd/pkg/types",
     "go.etcd.io/etcd/raft",
     "go.etcd.io/etcd/raft/raftpb",
+    "go.etcd.io/etcd/version",
     "go.etcd.io/etcd/wal",
     "go.etcd.io/etcd/wal/walpb",
     "go.uber.org/zap",
+    "golang.org/x/time/rate",
     "google.golang.org/grpc",
-    "google.golang.org/grpc/codes",
     "google.golang.org/grpc/keepalive",
-    "google.golang.org/grpc/status",
     "k8s.io/api/core/v1",
     "k8s.io/apimachinery/pkg/apis/meta/v1",
     "k8s.io/apimachinery/pkg/types",

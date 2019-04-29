@@ -198,7 +198,6 @@ func (server *dataServer) sendTentativeCutsToOrder(stream om.Order_ReportClient,
 				},
 			},
 			Finalize: nil,
-			Batch:    false,
 		}
 		sent = cut
 		stream.Send(reportReq)
