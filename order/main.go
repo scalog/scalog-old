@@ -40,6 +40,7 @@ func Start() {
 	messaging.RegisterOrderServer(grpcServer, server)
 	go server.proposalRaftBatch()
 	go server.listenForRaftCommits()
+	go server.listenToLeaderForwards()
 
 	logger.Printf("Order layer server available on port %d\n", viper.Get("port"))
 	//Blocking, must be last step

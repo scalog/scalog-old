@@ -25,7 +25,7 @@ func (server *orderServer) Report(stream pb.Order_ReportServer) error {
 			go server.reportResponseRoutine(stream, req)
 			spawned = true
 		}
-		server.rc.proposeC <- req
+		server.rc.toLeaderC <- req
 	}
 }
 
@@ -37,9 +37,8 @@ func (server *orderServer) Finalize(ctx context.Context, req *pb.FinalizeRequest
 	proposedShardFinalization := &pb.ReportRequest{
 		Shards:   nil,
 		Finalize: req.Shards,
-		Batch:    false,
 	}
-	server.rc.proposeC <- proposedShardFinalization
+	server.rc.toLeaderC <- proposedShardFinalization
 	// Create finalizationResponseChannels for each shard. We should wait until we hear back from
 	// all of these shards
 	for _, shardID := range req.Shards {

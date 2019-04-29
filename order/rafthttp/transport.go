@@ -16,6 +16,7 @@ package rafthttp
 
 import (
 	"context"
+	"github.com/scalog/scalog/logger"
 	"net/http"
 	"sync"
 	"time"
@@ -59,6 +60,8 @@ type Transporter interface {
 	// If the id cannot be found in the transport, the message
 	// will be ignored.
 	Send(m []raftpb.Message)
+	// Sends message to peer with ID. Does not become leader.
+	Forward(m raftpb.Message)
 	// SendSnapshot sends out the given snapshot message to a remote peer.
 	// The behavior of SendSnapshot is similar to Send.
 	SendSnapshot(m snap.Message)
@@ -211,6 +214,20 @@ func (t *Transport) Send(msgs []raftpb.Message) {
 		} else {
 			plog.Debugf("ignored message %s (sent to unknown peer %s)", m.Type, to)
 		}
+	}
+}
+
+func (t *Transport) Forward(m raftpb.Message) {
+	to := types.ID(m.To)
+
+	t.mu.RLock()
+	leader, ok := t.peers[to]
+	t.mu.RUnlock()
+
+	if ok {
+		leader.send(m)
+	} else {
+		logger.Panicf("Could not send to leader")
 	}
 }
 

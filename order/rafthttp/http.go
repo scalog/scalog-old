@@ -30,7 +30,7 @@ import (
 	"go.etcd.io/etcd/raft/raftpb"
 	"go.etcd.io/etcd/version"
 
-	humanize "github.com/dustin/go-humanize"
+	"github.com/dustin/go-humanize"
 	"go.uber.org/zap"
 )
 
@@ -137,8 +137,6 @@ func (h *pipelineHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	receivedBytes.WithLabelValues(types.ID(m.From).String()).Add(float64(len(b)))
-
-	//TODO unwrap m, send to leader channel
 
 	if err := h.r.Process(context.TODO(), m); err != nil {
 		switch v := err.(type) {

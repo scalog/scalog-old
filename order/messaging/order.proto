@@ -28,8 +28,8 @@ message ReportRequest {
     map<int32, ShardView> shards = 1;    
     // Non-nil only if the ordering layer wishes to propose a finalization these particular shards after k cuts
     map<int32, int32> finalize = 2;
-    // True if this is a request to batch and send the committedcuts
-    bool batch = 3;
+    // True if this should be forwarded to the leader
+    bool forward = 3;
 }
 
 message ReportResponse {

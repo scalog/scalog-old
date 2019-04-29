@@ -8,7 +8,6 @@ import (
 
 	"github.com/spf13/viper"
 
-	"github.com/golang/protobuf/proto"
 	"github.com/scalog/scalog/internal/pkg/golib"
 	"github.com/scalog/scalog/logger"
 	pb "github.com/scalog/scalog/order/messaging"
@@ -139,32 +138,6 @@ func (server *orderServer) getShardsToFinalize() []int32 {
 }
 
 /**
-Find min cut for each shard and compute changes from last committed cuts.
-Compute global sequence number for each server.
-Broadcasts the new CommittedCuts to data layer.
-
-CAUTION: THE CALLER MUST OBTAIN THE LOCK
-*/
-func (server *orderServer) mergeContestedCuts() {
-	server.updateCommittedCuts()
-	shardsToFinalize := server.getShardsToFinalize()
-	// Keep track of shards that we have finalized so that we ignore pipelined requests
-	for _, sid := range shardsToFinalize {
-		server.finalizedShards.Add(sid)
-		server.deleteShard(sid)
-	}
-	// broadcast cuts
-	resp := pb.ReportResponse{
-		CommitedCuts: server.committedCut,
-		StartGSN:     server.globalSequenceNum,
-		Finalize:     shardsToFinalize,
-	}
-	for _, ch := range server.aggregatorResponseChannels {
-		ch <- resp
-	}
-}
-
-/**
 Adds a shard with the shardID to the ordering layer. Does nothing if the shardID already exists.
 
 This operation acquires a writer lock.
@@ -252,15 +225,26 @@ func (server *orderServer) proposalRaftBatch() {
 		if server.rc.node == nil {
 			continue
 		}
-		isLeader := server.rc.leaderID == uint64(server.rc.id)
-
 		//do nothing if you're not the leader
-		if !isLeader {
+		if !server.rc.isLeader() {
 			continue
 		}
+
+		// calculate committed cut
+		server.mu.Lock()
+		startGSN := server.globalSequenceNum
+		server.updateCommittedCuts()
+		shardsToFinalize := server.getShardsToFinalize()
+		resp := &pb.ReportResponse{
+			CommitedCuts: server.committedCut,
+			StartGSN:     startGSN,
+			Finalize:     shardsToFinalize,
+		}
+		server.mu.Unlock()
+
 		// propose a batch operation to raft
 		// TODO: only propose a batch operation if we have seen some change in state?
-		server.rc.proposeC <- &pb.ReportRequest{Batch: true}
+		server.rc.proposeC <- resp
 	}
 }
 
@@ -285,28 +269,47 @@ func (server *orderServer) respondToFinalizeChannels(shardsToFinalize map[int32]
 Triggered when Raft commits a new message.
 */
 func (server *orderServer) listenForRaftCommits() {
-	for entry := range server.rc.commitC {
-		if entry == nil {
+	for req := range server.rc.commitC {
+		if req == nil {
 			server.attemptRecoverFromSnapshot()
 			continue
 		}
 
-		req := &pb.ReportRequest{}
-		if err := proto.Unmarshal(entry.Data, req); err != nil {
-			logger.Panicf("Could not unmarshal raft commit message")
+		server.mu.Lock()
+
+		// finalize
+		for _, sid := range req.Finalize {
+			server.finalizedShards.Add(sid)
+			server.deleteShard(sid)
+		}
+		// save committedCut, contestedCuts
+		server.committedCut = req.CommitedCuts
+		for shardID, replicaCuts := range req.CommitedCuts {
+			for replicaID, cut := range replicaCuts.Cut {
+				for i := 0; i < server.numServersPerShard; i++ {
+					prior := server.contestedCut[int(shardID)][int(replicaID)][i]
+					server.contestedCut[int(shardID)][int(replicaID)][i] = golib.Max(prior, int(cut))
+				}
+			}
+		}
+		server.globalSequenceNum = req.StartGSN
+		// tell aggregators
+		for _, responseChannel := range server.aggregatorResponseChannels {
+			responseChannel <- *req
 		}
 
+		server.mu.Unlock()
+	}
+}
+
+func (server *orderServer) listenToLeaderForwards() {
+	for req := range server.rc.leaderC {
 		// ReportRequests can take two actions -- one is where we decide upon a shard cut.
 		// The other action is if we decide on finalizing a particular shard.
 		if req.Finalize != nil {
 			server.updateFinalizationMap(req.Finalize)
 			server.respondToFinalizeChannels(req.Finalize)
 			continue
-		} else if req.Batch {
-			// req is a request to batch and send the global state to data shards
-			server.mu.Lock()
-			server.mergeContestedCuts()
-			server.mu.Unlock()
 		} else {
 			// Update the global state
 			server.mu.Lock()
