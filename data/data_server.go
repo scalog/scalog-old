@@ -243,7 +243,7 @@ func (server *dataServer) receiveFinalizedCuts(stream om.Order_ReportClient, sen
 		}
 		sort.Ints(shardIDs)
 
-		for shardID := range shardIDs {
+		for _, shardID := range shardIDs {
 			currentShardCut := in.CommitedCuts[int32(shardID)].Cut
 			if int(server.shardID) == shardID {
 				// Last committed cut for this server

@@ -54,9 +54,8 @@ func connectToLiveCluster(address string) {
 	if error != nil {
 		panic(error)
 	}
-	for _, s := range resp.ServerAddresses {
-		fmt.Println(s)
-		appendToShard(fmt.Sprintf("130.127.133.24:%d", s))
+	for _, s := range resp.Servers {
+		appendToShard(fmt.Sprintf("130.127.133.35:%d", s.Port))
 	}
 	conn.Close()
 }
@@ -65,10 +64,12 @@ func appendToShard(address string) {
 	var opts []grpc.DialOption
 	opts = append(opts, grpc.WithInsecure(), grpc.WithBlock())
 
+	fmt.Println("Dialing..." + address)
 	conn, err := grpc.Dial(address, opts...)
 	if err != nil {
 		panic(err)
 	}
+	fmt.Println("Finished dialing.")
 
 	client := messaging.NewDataClient(conn)
 	appendRequest := &messaging.AppendRequest{Cid: 32412, Csn: 1, Record: "please work :'("}
@@ -86,5 +87,5 @@ func main() {
 	fmt.Println("Test started")
 	// testFileSystem()
 	// testGRPC("0.0.0.0:21024")
-	connectToLiveCluster("130.127.133.24:32403")
+	connectToLiveCluster("130.127.133.35:31691")
 }
