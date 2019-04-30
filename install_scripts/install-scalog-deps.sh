@@ -1,5 +1,7 @@
 #!/bin/bash
 echo "Installing docker on this local machine"
+
+sudo -i
 # Install Docker CE
 ## Set up the repository:
 ### Install packages to allow apt to use a repository over HTTPS
