@@ -31,11 +31,8 @@ sudo cat > /etc/docker/daemon.json <<EOF
 }
 EOF
 
-sudo mkdir -p /etc/systemd/system/docker.service.d
-
 # Restart docker.
 sudo systemctl daemon-reload
-sudo systemctl restart docker
 
 echo "Installing kubeadm on this local machine..."
 
