@@ -19,20 +19,20 @@ sudo add-apt-repository \
 ## Install Docker CE.
 sudo apt-get update && sudo apt-get install docker-ce=18.06.2~ce~3-0~ubuntu
 
-# Setup daemon.
-sudo cat > /etc/docker/daemon.json <<EOF
-{
-  "exec-opts": ["native.cgroupdriver=systemd"],
-  "log-driver": "json-file",
-  "log-opts": {
-    "max-size": "100m"
-  },
-  "storage-driver": "overlay2"
-}
-EOF
+# # Setup daemon.
+# sudo cat > /etc/docker/daemon.json <<EOF
+# {
+#   "exec-opts": ["native.cgroupdriver=systemd"],
+#   "log-driver": "json-file",
+#   "log-opts": {
+#     "max-size": "100m"
+#   },
+#   "storage-driver": "overlay2"
+# }
+# EOF
 
-# Restart docker.
-sudo systemctl daemon-reload
+# # Restart docker.
+# sudo systemctl daemon-reload
 
 echo "Installing kubeadm on this local machine..."
 
