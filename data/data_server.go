@@ -45,8 +45,6 @@ type dataServer struct {
 	shardID int32
 	// lastComittedCut is the last batch recieved from the ordering layer
 	lastCommittedCut order.CommittedCut
-	// nextAvailableGSN is the next
-	nextAvailableGSN int32
 	// True if this replica has been finalized
 	isFinalized bool
 	// Stable storage for entries into this shard
@@ -107,7 +105,6 @@ func newDataServer() *dataServer {
 		replicaCount:     replicaCount,
 		shardID:          shardID,
 		lastCommittedCut: make(order.CommittedCut),
-		nextAvailableGSN: 0,
 		isFinalized:      false,
 		stableStorage:    &fs,
 		serverBuffers:    make([][]Record, replicaCount),
@@ -243,6 +240,8 @@ func (server *dataServer) receiveFinalizedCuts(stream om.Order_ReportClient, sen
 		}
 		sort.Ints(shardIDs)
 
+		// cutGSN starts assigning GSN based on the index indicated by the fault tolerant ordering layer
+		cutGSN := in.StartGSN
 		for _, shardID := range shardIDs {
 			currentShardCut := in.CommitedCuts[int32(shardID)].Cut
 			if int(server.shardID) == shardID {
@@ -267,13 +266,13 @@ func (server *dataServer) receiveFinalizedCuts(stream om.Order_ReportClient, sen
 					}
 					numLogs := int(r - offset)
 					for i := 0; i < numLogs; i++ {
-						server.serverBuffers[idx][int(offset)+i].gsn = server.nextAvailableGSN
-						server.stableStorage.WriteLog(server.nextAvailableGSN, server.serverBuffers[idx][int(offset)+i].record)
+						server.serverBuffers[idx][int(offset)+i].gsn = cutGSN
+						server.stableStorage.WriteLog(cutGSN, server.serverBuffers[idx][int(offset)+i].record)
 						// If you were the one who received this client req, you should respond to it
 						if idx == int(server.replicaID) {
-							server.serverBuffers[idx][int(offset)+i].commitResp <- server.nextAvailableGSN
+							server.serverBuffers[idx][int(offset)+i].commitResp <- cutGSN
 						}
-						server.nextAvailableGSN++
+						cutGSN++
 					}
 				}
 				continue
@@ -281,7 +280,7 @@ func (server *dataServer) receiveFinalizedCuts(stream om.Order_ReportClient, sen
 			// Update the gsn
 			for i, r := range currentShardCut {
 				diff := r - server.lastCommittedCut[int32(shardID)].Cut[i]
-				server.nextAvailableGSN += diff
+				cutGSN += diff
 			}
 		}
 
