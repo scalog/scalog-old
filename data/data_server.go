@@ -38,7 +38,7 @@ type ShardCut []int
 
 type ClientSubscription struct {
 	active bool
-	stream messaging.Data_SubscribeServer
+	stream *messaging.Data_SubscribeServer
 	gsn    int32
 }
 
@@ -312,7 +312,8 @@ func (server *dataServer) respondToClientSubscriptions(gsn int32) {
 				Gsn:    gsn,
 				Record: server.committedRecords[gsn],
 			}
-			if err := clientSubscription.stream.Send(resp); err != nil {
+			if err := (*clientSubscription.stream).Send(resp); err != nil {
+				logger.Printf(err.Error())
 				logger.Printf("Failed to respond to client subscription with new GSN: [%d]", gsn)
 				server.clientSubscriptions[i].active = false
 			}
