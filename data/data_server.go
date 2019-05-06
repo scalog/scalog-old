@@ -128,9 +128,11 @@ func (server *dataServer) sendTentativeCutsToOrder(stream om.Order_ReportClient,
 	}
 	for range ticker.C {
 		cut := make([]int32, server.replicaCount)
+		server.mu.RLock()
 		for idx, buf := range server.serverBuffers {
 			cut[idx] = int32(len(buf))
 		}
+		server.mu.RUnlock()
 		// If we have not received anything since the last order layer report, then don't
 		// send anything.
 		if golib.SliceEq(cut, sent) {
@@ -266,12 +268,14 @@ func (server *dataServer) receiveFinalizedCuts(stream om.Order_ReportClient, sen
 					}
 					numLogs := int(r - offset)
 					for i := 0; i < numLogs; i++ {
+						server.mu.Lock()
 						server.serverBuffers[idx][int(offset)+i].gsn = cutGSN
 						server.stableStorage.WriteLog(cutGSN, server.serverBuffers[idx][int(offset)+i].record)
 						// If you were the one who received this client req, you should respond to it
 						if idx == int(server.replicaID) {
 							server.serverBuffers[idx][int(offset)+i].commitResp <- cutGSN
 						}
+						server.mu.Unlock()
 						cutGSN++
 					}
 				}
