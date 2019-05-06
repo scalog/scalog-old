@@ -17,13 +17,13 @@ func (server *dataServer) Append(c context.Context, req *pb.AppendRequest) (*pb.
 		return nil, errors.New("this shard has been finalized. No further appends will be permitted")
 	}
 
-	server.mu.Lock()
 	r := &Record{
 		cid:        req.Cid,
 		csn:        req.Csn,
 		record:     req.Record,
 		commitResp: make(chan int32),
 	}
+	server.mu.Lock()
 	server.serverBuffers[server.replicaID] = append(server.serverBuffers[server.replicaID], *r)
 	server.mu.Unlock()
 
