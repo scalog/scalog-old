@@ -67,7 +67,7 @@ func (server *dataServer) Subscribe(req *pb.SubscribeRequest, stream pb.Data_Sub
 	gsn := clientSubscription.gsn
 	record, in := server.committedRecords[gsn]
 	for in {
-		logger.Printf("Responding to client subscription with GSN [%d]", gsn)
+		logger.Printf("Responding to client subscription with past GSN [%d]", gsn)
 		resp := &messaging.SubscribeResponse{
 			Gsn:    gsn,
 			Record: record,
