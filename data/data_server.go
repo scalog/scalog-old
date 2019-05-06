@@ -303,13 +303,13 @@ func (server *dataServer) receiveFinalizedCuts(stream om.Order_ReportClient, sen
 }
 
 func (server *dataServer) respondToClientSubscriptions(gsn int32) {
-	for i := range server.clientSubscriptions {
-		if gsn > server.clientSubscriptions[i].gsn {
+	for _, clientSubscription := range server.clientSubscriptions {
+		if gsn > clientSubscription.gsn {
 			resp := &messaging.SubscribeResponse{
 				Gsn:    gsn,
 				Record: server.committedRecords[gsn],
 			}
-			server.clientSubscriptions[i].stream.Send(resp)
+			clientSubscription.stream.Send(resp)
 		}
 	}
 }
