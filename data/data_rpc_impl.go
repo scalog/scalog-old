@@ -56,8 +56,23 @@ func (server *dataServer) Replicate(stream pb.Data_ReplicateServer) error {
 	}
 }
 
-func (server *dataServer) Subscribe(*pb.SubscribeRequest, pb.Data_SubscribeServer) error {
-	// TODO: Implement
+func (server *dataServer) Subscribe(req *pb.SubscribeRequest, stream pb.Data_SubscribeServer) error {
+	clientSubscription := ClientSubscription{
+		stream: stream,
+		gsn:    req.GetSubscriptionGsn(),
+	}
+	server.clientSubscriptions = append(server.clientSubscriptions, clientSubscription)
+	gsn := clientSubscription.gsn
+	record, in := server.committedRecords[gsn]
+	for in {
+		resp := &messaging.SubscribeResponse{
+			Gsn:    gsn,
+			Record: record,
+		}
+		stream.Send(resp)
+		gsn++
+		record, in := server.committedRecords[gsn]
+	}
 	return nil
 }
 

@@ -36,6 +36,11 @@ type Record struct {
 // Server's view of latest cuts in all servers of the shard
 type ShardCut []int
 
+type ClientSubscription struct {
+	stream messaging.Data_SubscribeServer
+	gsn    int32
+}
+
 type dataServer struct {
 	// ID of this data server within a shard
 	replicaID int32
@@ -57,6 +62,10 @@ type dataServer struct {
 	shardServers []chan messaging.ReplicateRequest
 	// Client for API calls with kubernetes
 	kubeClient *kubernetes.Clientset
+	// Active streams to subscribed client libraries
+	clientSubscriptions []ClientSubscription
+	// Map from gsn to committed record
+	committedRecords map[int32]string
 }
 
 /*
@@ -101,16 +110,18 @@ func newDataServer() *dataServer {
 
 	fs := filesystem.New("scalog-db")
 	s := &dataServer{
-		replicaID:        replicaID,
-		replicaCount:     replicaCount,
-		shardID:          shardID,
-		lastCommittedCut: make(order.CommittedCut),
-		isFinalized:      false,
-		stableStorage:    &fs,
-		serverBuffers:    make([][]Record, replicaCount),
-		mu:               sync.RWMutex{},
-		shardServers:     shardPods,
-		kubeClient:       clientset,
+		replicaID:           replicaID,
+		replicaCount:        replicaCount,
+		shardID:             shardID,
+		lastCommittedCut:    make(order.CommittedCut),
+		isFinalized:         false,
+		stableStorage:       &fs,
+		serverBuffers:       make([][]Record, replicaCount),
+		mu:                  sync.RWMutex{},
+		shardServers:        shardPods,
+		kubeClient:          clientset,
+		clientSubscriptions: make([]ClientSubscription, 100), // TODO: load initial capacity from config
+		committedRecords:    make(map[int32]string, 100),     // TODO: load initial capacity from config
 	}
 	s.setupOrderLayerComunication()
 	return s
@@ -271,6 +282,8 @@ func (server *dataServer) receiveFinalizedCuts(stream om.Order_ReportClient, sen
 						server.mu.Lock()
 						server.serverBuffers[idx][int(offset)+i].gsn = cutGSN
 						server.stableStorage.WriteLog(cutGSN, server.serverBuffers[idx][int(offset)+i].record)
+						server.committedRecords[cutGSN] = server.serverBuffers[idx][int(offset)+i].record
+						go server.respondToClientSubscriptions(cutGSN)
 						// If you were the one who received this client req, you should respond to it
 						if idx == int(server.replicaID) {
 							server.serverBuffers[idx][int(offset)+i].commitResp <- cutGSN
@@ -290,6 +303,18 @@ func (server *dataServer) receiveFinalizedCuts(stream om.Order_ReportClient, sen
 
 		// update stored cut & log number
 		server.lastCommittedCut = in.CommitedCuts
+	}
+}
+
+func (server *dataServer) respondToClientSubscriptions(gsn int32) {
+	for i := range server.clientSubscriptions {
+		if gsn > server.clientSubscriptions[i].gsn {
+			resp := &messaging.SubscribeResponse{
+				Gsn:    gsn,
+				Record: server.committedRecords[gsn],
+			}
+			server.clientSubscriptions[i].stream.Send(resp)
+		}
 	}
 }
 
