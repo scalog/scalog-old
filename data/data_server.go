@@ -36,10 +36,10 @@ type Record struct {
 // Server's view of latest cuts in all servers of the shard
 type ShardCut []int
 
-type ClientSubscription struct {
-	active bool
-	stream *messaging.Data_SubscribeServer
-	gsn    int32
+type clientSubscription struct {
+	active   bool
+	respChan chan messaging.SubscribeResponse
+	startGsn int32
 }
 
 type dataServer struct {
@@ -64,7 +64,7 @@ type dataServer struct {
 	// Client for API calls with kubernetes
 	kubeClient *kubernetes.Clientset
 	// Active streams to subscribed client libraries
-	clientSubscriptions []ClientSubscription
+	clientSubscriptions []clientSubscription
 	// Map from gsn to committed record
 	committedRecords map[int32]string
 }
@@ -121,7 +121,7 @@ func newDataServer() *dataServer {
 		mu:                  sync.RWMutex{},
 		shardServers:        shardPods,
 		kubeClient:          clientset,
-		clientSubscriptions: make([]ClientSubscription, 0), // TODO: load initial capacity from config
+		clientSubscriptions: make([]clientSubscription, 0), // TODO: load initial capacity from config
 		committedRecords:    make(map[int32]string, 100),   // TODO: load initial capacity from config
 	}
 	s.setupOrderLayerComunication()
@@ -304,19 +304,13 @@ func (server *dataServer) receiveFinalizedCuts(stream om.Order_ReportClient, sen
 }
 
 func (server *dataServer) respondToClientSubscriptions(gsn int32) {
-	logger.Printf("Number of active clients subscribed: [%d]", len(server.clientSubscriptions))
-	for i, clientSubscription := range server.clientSubscriptions {
-		if clientSubscription.active && (gsn >= clientSubscription.gsn) { // TODO: check that the stream is still alive
-			logger.Printf("Responding to client subscription with new GSN: [%d]", gsn)
-			resp := &messaging.SubscribeResponse{
+	for _, clientSubscription := range server.clientSubscriptions {
+		if clientSubscription.active && gsn >= clientSubscription.startGsn {
+			resp := messaging.SubscribeResponse{
 				Gsn:    gsn,
 				Record: server.committedRecords[gsn],
 			}
-			if err := (*clientSubscription.stream).Send(resp); err != nil {
-				logger.Printf(err.Error())
-				logger.Printf("Failed to respond to client subscription with new GSN: [%d]", gsn)
-				server.clientSubscriptions[i].active = false
-			}
+			clientSubscription.respChan <- resp
 		}
 	}
 }
