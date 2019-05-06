@@ -60,7 +60,7 @@ func (server *dataServer) Subscribe(req *pb.SubscribeRequest, stream pb.Data_Sub
 	logger.Printf("Received SUBSCRIBE request from client starting at GSN [%d]", req.GetSubscriptionGsn())
 	clientSubscription := ClientSubscription{
 		active: true,
-		stream: stream,
+		stream: &stream,
 		gsn:    req.GetSubscriptionGsn(),
 	}
 	server.clientSubscriptions = append(server.clientSubscriptions, clientSubscription)
@@ -72,11 +72,14 @@ func (server *dataServer) Subscribe(req *pb.SubscribeRequest, stream pb.Data_Sub
 			Gsn:    gsn,
 			Record: record,
 		}
-		stream.Send(resp)
+		if err := stream.Send(resp); err != nil {
+			logger.Printf(err.Error())
+		}
 		gsn++
 		record, in = server.committedRecords[gsn]
 	}
-	return nil
+	for {
+	}
 }
 
 func (server *dataServer) Trim(context.Context, *pb.TrimRequest) (*pb.TrimResponse, error) {
