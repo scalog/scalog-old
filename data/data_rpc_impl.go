@@ -64,7 +64,6 @@ func (server *dataServer) Subscribe(req *pb.SubscribeRequest, stream pb.Data_Sub
 		startGsn: req.GetSubscriptionGsn(),
 	}
 	server.clientSubscriptions = append(server.clientSubscriptions, clientSubscription)
-	logger.Printf("Added new client subscription")
 
 	// Respond to client with previously committed records
 	currGsn := clientSubscription.startGsn
@@ -87,8 +86,7 @@ func (server *dataServer) Subscribe(req *pb.SubscribeRequest, stream pb.Data_Sub
 	}
 
 	// Respond to client with newly committed records
-	for {
-		resp := <-clientSubscription.respChan
+	for resp := range clientSubscription.respChan {
 		if err := stream.Send(&resp); err != nil {
 			logger.Printf("Failed to respond to client with new GSN [%d]", resp.Gsn)
 			clientSubscription.active = false
@@ -96,6 +94,8 @@ func (server *dataServer) Subscribe(req *pb.SubscribeRequest, stream pb.Data_Sub
 		}
 		logger.Printf("Responded to client subscription with new GSN [%d]", resp.Gsn)
 	}
+
+	return nil
 }
 
 func (server *dataServer) Trim(context.Context, *pb.TrimRequest) (*pb.TrimResponse, error) {
