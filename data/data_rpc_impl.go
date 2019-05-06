@@ -57,7 +57,9 @@ func (server *dataServer) Replicate(stream pb.Data_ReplicateServer) error {
 }
 
 func (server *dataServer) Subscribe(req *pb.SubscribeRequest, stream pb.Data_SubscribeServer) error {
+	logger.Printf("Received SUBSCRIBE request from client starting at GSN [%d]", req.GetSubscriptionGsn())
 	clientSubscription := ClientSubscription{
+		active: true,
 		stream: stream,
 		gsn:    req.GetSubscriptionGsn(),
 	}
@@ -65,6 +67,7 @@ func (server *dataServer) Subscribe(req *pb.SubscribeRequest, stream pb.Data_Sub
 	gsn := clientSubscription.gsn
 	record, in := server.committedRecords[gsn]
 	for in {
+		logger.Printf("Responding to client subscription with GSN [%d]", gsn)
 		resp := &messaging.SubscribeResponse{
 			Gsn:    gsn,
 			Record: record,
