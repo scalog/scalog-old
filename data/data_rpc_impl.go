@@ -71,7 +71,7 @@ func (server *dataServer) Subscribe(req *pb.SubscribeRequest, stream pb.Data_Sub
 		}
 		stream.Send(resp)
 		gsn++
-		record, in := server.committedRecords[gsn]
+		record, in = server.committedRecords[gsn]
 	}
 	return nil
 }
