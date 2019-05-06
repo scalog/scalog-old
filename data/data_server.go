@@ -120,8 +120,8 @@ func newDataServer() *dataServer {
 		mu:                  sync.RWMutex{},
 		shardServers:        shardPods,
 		kubeClient:          clientset,
-		clientSubscriptions: make([]ClientSubscription, 100), // TODO: load initial capacity from config
-		committedRecords:    make(map[int32]string, 100),     // TODO: load initial capacity from config
+		clientSubscriptions: make([]ClientSubscription, 0), // TODO: load initial capacity from config
+		committedRecords:    make(map[int32]string, 100),   // TODO: load initial capacity from config
 	}
 	s.setupOrderLayerComunication()
 	return s
@@ -304,7 +304,7 @@ func (server *dataServer) receiveFinalizedCuts(stream om.Order_ReportClient, sen
 
 func (server *dataServer) respondToClientSubscriptions(gsn int32) {
 	for _, clientSubscription := range server.clientSubscriptions {
-		if gsn > clientSubscription.gsn {
+		if gsn > clientSubscription.gsn { // TODO: check that the stream is still alive
 			resp := &messaging.SubscribeResponse{
 				Gsn:    gsn,
 				Record: server.committedRecords[gsn],
