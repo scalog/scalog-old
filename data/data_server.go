@@ -37,6 +37,7 @@ type Record struct {
 type ShardCut []int
 
 type ClientSubscription struct {
+	active bool
 	stream messaging.Data_SubscribeServer
 	gsn    int32
 }
@@ -302,14 +303,25 @@ func (server *dataServer) receiveFinalizedCuts(stream om.Order_ReportClient, sen
 	}
 }
 
+/*
+if err := stream.Send(feature); err != nil {
+				return err
+			}
+*/
 func (server *dataServer) respondToClientSubscriptions(gsn int32) {
-	for _, clientSubscription := range server.clientSubscriptions {
-		if gsn > clientSubscription.gsn { // TODO: check that the stream is still alive
+	logger.Printf("Responding to client subscriptions wih GSN: [%d]", gsn)
+	logger.Printf("Number of active clients subscribed: [%d]", len(server.clientSubscriptions))
+	for i, clientSubscription := range server.clientSubscriptions {
+		if clientSubscription.active && gsn >= clientSubscription.gsn { // TODO: check that the stream is still alive
+			logger.Printf("Responding to client subscription with GSN: %d", gsn)
 			resp := &messaging.SubscribeResponse{
 				Gsn:    gsn,
 				Record: server.committedRecords[gsn],
 			}
-			clientSubscription.stream.Send(resp)
+			if err := clientSubscription.stream.Send(resp); err != nil {
+				logger.Panicf("Failed to respond to client subscription with GSN: [%d]", gsn)
+				server.clientSubscriptions[i].active = false
+			}
 		}
 	}
 }
