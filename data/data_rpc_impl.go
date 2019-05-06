@@ -66,8 +66,7 @@ func (server *dataServer) Subscribe(req *pb.SubscribeRequest, stream pb.Data_Sub
 	server.clientSubscriptions = append(server.clientSubscriptions, clientSubscription)
 
 	// Respond to client with previously committed records
-	currGsn := clientSubscription.startGsn
-	for {
+	for currGsn := clientSubscription.startGsn; ; currGsn++ {
 		record, in := server.committedRecords[currGsn]
 		if !in {
 			break
@@ -82,7 +81,6 @@ func (server *dataServer) Subscribe(req *pb.SubscribeRequest, stream pb.Data_Sub
 			return err
 		}
 		logger.Printf("Responded to client subscription with past GSN [%d]", currGsn)
-		currGsn++
 	}
 
 	// Respond to client with newly committed records
