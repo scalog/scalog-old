@@ -37,8 +37,11 @@ type Record struct {
 type ShardCut []int
 
 type clientSubscription struct {
-	active   bool
+	// Indicates whether the gRPC connection is still active
+	active bool
+	// Channel on which to send [SubscribeResponse]s to be forwarded to the client
 	respChan chan messaging.SubscribeResponse
+	// Global sequence number that client started subscribing from
 	startGsn int32
 }
 
@@ -63,7 +66,7 @@ type dataServer struct {
 	shardServers []chan messaging.ReplicateRequest
 	// Client for API calls with kubernetes
 	kubeClient *kubernetes.Clientset
-	// Active streams to subscribed client libraries
+	// Clients that have subscribed to this data server
 	clientSubscriptions []clientSubscription
 	// Map from gsn to committed record
 	committedRecords map[int32]string
@@ -282,6 +285,7 @@ func (server *dataServer) receiveFinalizedCuts(stream om.Order_ReportClient, sen
 						server.stableStorage.WriteLog(cutGSN, server.serverBuffers[idx][int(offset)+i].record)
 						server.committedRecords[cutGSN] = server.serverBuffers[idx][int(offset)+i].record
 						go server.respondToClientSubscriptions(cutGSN)
+
 						// If you were the one who received this client req, you should respond to it
 						if idx == int(server.replicaID) {
 							server.serverBuffers[idx][int(offset)+i].commitResp <- cutGSN
@@ -303,8 +307,12 @@ func (server *dataServer) receiveFinalizedCuts(stream om.Order_ReportClient, sen
 	}
 }
 
+/*
+	Sends a [SubscribeResponse] for record with global sequence number [gsn] on all subscribed clients' channels
+	if their gRPC connection is still active and they have requested to start subscribing from [gsn] or earlier
+*/
 func (server *dataServer) respondToClientSubscriptions(gsn int32) {
-	for _, clientSubscription := range server.clientSubscriptions {
+	for _, clientSubscription := range server.clientSubscriptions { // TODO: look into improving performance
 		if clientSubscription.active && gsn >= clientSubscription.startGsn {
 			resp := messaging.SubscribeResponse{
 				Gsn:    gsn,
