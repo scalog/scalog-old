@@ -126,8 +126,8 @@ func (server *orderServer) updateCommittedCuts() {
 // shardID's by one.
 func (server *orderServer) getShardsToFinalize() []int32 {
 	shardsToFinalize := make([]int32, 0)
-	for shardID, kCuts := range server.finalizeMap {
-		if kCuts == 0 {
+	for shardID, cuts := range server.finalizeMap {
+		if cuts == 0 {
 			shardsToFinalize = append(shardsToFinalize, shardID)
 			delete(server.finalizeMap, shardID)
 		} else {
@@ -270,8 +270,8 @@ func (server *orderServer) proposalRaftBatch() {
 }
 
 func (server *orderServer) updateFinalizationMap(shardsToFinalize map[int32]int32) {
-	for shardID, kCuts := range shardsToFinalize {
-		server.finalizeMap[shardID] = kCuts
+	for shardID, cuts := range shardsToFinalize {
+		server.finalizeMap[shardID] = cuts
 	}
 }
 

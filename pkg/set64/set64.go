@@ -29,7 +29,7 @@ func (s *Set64) Size() int {
 	return len(s.list)
 }
 
-//for iteration
+// Iterable iterates the set.
 func (s *Set64) Iterable() map[int64]struct{} {
 	return s.list
 }
@@ -43,7 +43,9 @@ func NewSet64(list ...int64) *Set64 {
 	return s
 }
 
-//optional functionalities
+//
+// optional functionalities
+//
 
 type FilterFunc64 func(v int64) bool
 
