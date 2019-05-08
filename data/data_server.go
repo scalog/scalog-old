@@ -139,9 +139,9 @@ func (server *dataServer) sendTentativeCutsToOrder(stream om.Order_ReportClient,
 
 		reportReq := &om.ReportRequest{
 			Shards: map[int32]*om.ShardView{
-				server.shardID: &om.ShardView{
+				server.shardID: {
 					Replicas: map[int32]*om.Cut{
-						server.replicaID: &om.Cut{
+						server.replicaID: {
 							Cut: cut,
 						},
 					},
