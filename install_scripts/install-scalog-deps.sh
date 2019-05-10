@@ -1,11 +1,10 @@
 #!/bin/bash
 echo "Installing docker on this local machine"
 
-sudo -i
 # Install Docker CE
 ## Set up the repository:
 ### Install packages to allow apt to use a repository over HTTPS
-sudo apt-get update && sudo apt-get install apt-transport-https ca-certificates curl software-properties-common
+sudo apt-get update && sudo apt-get install -y apt-transport-https ca-certificates curl software-properties-common
 
 ### Add Docker’s official GPG key
 curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -
@@ -17,7 +16,7 @@ sudo add-apt-repository \
   stable"
 
 ## Install Docker CE.
-sudo apt-get update && sudo apt-get install docker-ce=18.06.2~ce~3-0~ubuntu
+sudo apt-get update && sudo apt-get install -y docker-ce=18.06.2~ce~3-0~ubuntu
 
 echo "Installing kubeadm on this local machine..."
 
@@ -30,6 +29,6 @@ sudo apt-get install -y kubelet kubeadm kubectl
 sudo apt-mark hold kubelet kubeadm kubectl
 
 modprobe br_netfilter
-sudo swapoff -a 
+sudo swapoff -a
 
 echo "Successfully installed kubeadm"
