@@ -36,13 +36,28 @@ type Record struct {
 // Server's view of latest cuts in all servers of the shard
 type ShardCut []int
 
+type clientSubscriptionState int
+
+const (
+	// BEHIND indicates the client may not have received a response for some past committed records
+	BEHIND clientSubscriptionState = 0
+	// UPTODATE indicates the client has received a response for all past committed records
+	UPTODATE clientSubscriptionState = 1
+	// CLOSED indiciates the gRPC connection has been closed
+	CLOSED clientSubscriptionState = 2
+)
+
 type clientSubscription struct {
-	// Indicates whether the gRPC connection is still active
-	active bool
+	// Indicates whether the client has received responses for past committed records or whether the
+	// gRPC connection has been closed
+	state clientSubscriptionState
 	// Channel on which to send [SubscribeResponse]s to be forwarded to the client
 	respChan chan messaging.SubscribeResponse
 	// Global sequence number that client started subscribing from
 	startGsn int32
+	// The last global sequence number that the client was sent a response for before
+	// starting to receive responses for newly committed records
+	lastGsn int32
 }
 
 type dataServer struct {
@@ -287,8 +302,10 @@ func (server *dataServer) receiveFinalizedCuts(stream om.Order_ReportClient, sen
 						server.serverBuffers[idx][int(offset)+i].gsn = cutGSN
 						server.stableStorage.WriteLog(cutGSN, server.serverBuffers[idx][int(offset)+i].record)
 						server.committedRecords[cutGSN] = server.serverBuffers[idx][int(offset)+i].record
-						go server.respondToClientSubscriptions(cutGSN)
-
+						// TODO: look into improving performance
+						// This may potentially significantly increase the time to process a finalized cut if
+						// the number of clients is large
+						server.respondToClientSubscriptions(cutGSN)
 						// If you were the one who received this client req, you should respond to it
 						if idx == int(server.replicaID) {
 							server.serverBuffers[idx][int(offset)+i].commitResp <- cutGSN
@@ -313,11 +330,25 @@ func (server *dataServer) receiveFinalizedCuts(stream om.Order_ReportClient, sen
 
 /*
 	Sends a [SubscribeResponse] for record with global sequence number [gsn] on all subscribed clients' channels
-	if their gRPC connection is still active and they have requested to start subscribing from [gsn] or earlier
+	if their gRPC connection is still active and they have requested to start subscribing from [gsn] or earlier.
+	If a client's state is [BEHIND], sends [SubscribeResponse]s for all past committed records with gsn < [gsn]
+	first and sets state to [UPTODATE].
 */
 func (server *dataServer) respondToClientSubscriptions(gsn int32) {
-	for _, clientSubscription := range server.clientSubscriptions { // TODO: look into improving performance
-		if clientSubscription.active && gsn >= clientSubscription.startGsn {
+	for _, clientSubscription := range server.clientSubscriptions {
+		if clientSubscription.state == BEHIND {
+			// TODO: look into improving performance
+			// A clientSubscription should be at most one finalized cut behind
+			for currGsn := clientSubscription.lastGsn; currGsn < gsn; currGsn++ {
+				resp := messaging.SubscribeResponse{
+					Gsn:    currGsn,
+					Record: server.committedRecords[gsn],
+				}
+				clientSubscription.respChan <- resp
+			}
+			clientSubscription.state = UPTODATE
+		}
+		if clientSubscription.state == UPTODATE && gsn >= clientSubscription.startGsn {
 			resp := messaging.SubscribeResponse{
 				Gsn:    gsn,
 				Record: server.committedRecords[gsn],
