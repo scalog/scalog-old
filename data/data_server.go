@@ -334,6 +334,10 @@ func (server *dataServer) receiveFinalizedCuts(stream om.Order_ReportClient, sen
 	}
 }
 
+/*
+	Listens for new client subscriptions and assynchronously responds to the client with past committed
+	records.
+*/
 func (server *dataServer) handleNewClientSubs() {
 	for clientSub := range server.newClientSubsChan {
 		server.clientSubsMutex.Lock()
@@ -343,9 +347,12 @@ func (server *dataServer) handleNewClientSubs() {
 	}
 }
 
+/*
+	Responds to a client with past committed records.
+*/
 func (server *dataServer) updateBehindClientSub(clientSub *clientSubscription) {
 	for currGsn := clientSub.startGsn; ; currGsn++ {
-		if clientSub.state == UPDATED && currGsn >= clientSub.firstNewGsn {
+		if clientSub.state == CLOSED || (clientSub.state == UPDATED && currGsn >= clientSub.firstNewGsn) {
 			return
 		}
 		record, in := server.committedRecords[currGsn]
@@ -361,6 +368,9 @@ func (server *dataServer) updateBehindClientSub(clientSub *clientSubscription) {
 	clientSub.state = UPDATED
 }
 
+/*
+	Listens for newly committed records and assynchronously responds to all active clients.
+*/
 func (server *dataServer) respondToClientSubs() {
 	for gsn := range server.clientSubsResponseChan {
 		server.clientSubsMutex.Lock()
@@ -373,6 +383,9 @@ func (server *dataServer) respondToClientSubs() {
 	}
 }
 
+/*
+	Responds to a client with a newly committed record.
+*/
 func (server *dataServer) respondToClientSub(clientSub *clientSubscription, gsn int32) {
 	if clientSub.state == BEHIND {
 		clientSub.firstNewGsn = gsn
