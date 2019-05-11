@@ -59,41 +59,22 @@ func (server *dataServer) Replicate(stream pb.Data_ReplicateServer) error {
 func (server *dataServer) Subscribe(req *pb.SubscribeRequest, stream pb.Data_SubscribeServer) error {
 	logger.Printf("Received SUBSCRIBE request from client starting at GSN %d", req.SubscriptionGsn)
 
-	// Respond to client with previously committed records
-	var currGsn int32
-	for currGsn = req.SubscriptionGsn; ; currGsn++ {
-		record, in := server.committedRecords[currGsn]
-		if !in {
-			break
-		}
-		resp := &messaging.SubscribeResponse{
-			Gsn:    currGsn,
-			Record: record,
-		}
-		if err := stream.Send(resp); err != nil {
-			logger.Printf("Failed to respond to client with past GSN %d", currGsn)
-			return err
-		}
-		logger.Printf("Responded to client subscription with past GSN %d", currGsn)
+	clientSubscription := &clientSubscription{
+		state:       BEHIND,
+		respChan:    make(chan messaging.SubscribeResponse),
+		startGsn:    req.SubscriptionGsn,
+		firstNewGsn: -1,
 	}
+	server.newClientSubsChan <- clientSubscription
 
-	clientSubscription := clientSubscription{
-		state:    BEHIND,
-		respChan: make(chan messaging.SubscribeResponse),
-		startGsn: req.SubscriptionGsn,
-		lastGsn:  currGsn,
-	}
-	// Start receiving responses for newly committed records
-	server.clientSubscriptions = append(server.clientSubscriptions, clientSubscription)
-
-	// Respond to client with newly committed records
+	// Respond to client with committed records
 	for resp := range clientSubscription.respChan {
 		if err := stream.Send(&resp); err != nil {
-			logger.Printf("Failed to respond to client with new GSN [%d]", resp.Gsn)
+			logger.Printf("Failed to respond to client for record with GSN [%d]", resp.Gsn)
 			clientSubscription.state = CLOSED
 			return err
 		}
-		logger.Printf("Responded to client subscription with new GSN [%d]", resp.Gsn)
+		logger.Printf("Responded to client subscription for record with GSN [%d]", resp.Gsn)
 	}
 
 	clientSubscription.state = CLOSED
