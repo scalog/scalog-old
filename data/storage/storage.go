@@ -90,7 +90,8 @@ type payload struct {
 }
 
 /*
-NewStorage TODO
+NewStorage creates a new directory at [storagePath] and returns a new instance
+of storage for creating partitions and writing to them.
 */
 func NewStorage(storagePath string) *Storage {
 	err := os.MkdirAll(storagePath, os.ModePerm)
@@ -103,7 +104,7 @@ func NewStorage(storagePath string) *Storage {
 }
 
 /*
-AddPartition TODO
+AddPartition adds a new partition to storage and returns the partition's id.
 */
 func (s *Storage) AddPartition() int32 {
 	p := newPartition(s.storagePath, s.nextPartitionID)
@@ -115,7 +116,7 @@ func (s *Storage) AddPartition() int32 {
 }
 
 /*
-Write TODO
+Write writes an entry to the default partition.
 */
 func (s *Storage) Write(gsn int64, record string) {
 	if len(s.partitions) == 0 {
@@ -125,7 +126,7 @@ func (s *Storage) Write(gsn int64, record string) {
 }
 
 /*
-WriteToPartition TODO
+WriteToPartition writes an entry to partition with id [partitionID].
 */
 func (s *Storage) WriteToPartition(partitionID int32, gsn int64, record string) {
 	p, in := s.partitions[partitionID]
