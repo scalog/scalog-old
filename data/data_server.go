@@ -13,8 +13,8 @@ import (
 
 	"github.com/scalog/scalog/order"
 
-	"github.com/scalog/scalog/data/filesystem"
 	"github.com/scalog/scalog/data/messaging"
+	"github.com/scalog/scalog/data/storage"
 	"github.com/scalog/scalog/logger"
 	om "github.com/scalog/scalog/order/messaging"
 	"github.com/spf13/viper"
@@ -48,7 +48,7 @@ type dataServer struct {
 	// True if this replica has been finalized
 	isFinalized bool
 	// Stable storage for entries into this shard
-	stableStorage *filesystem.RecordStorage
+	disk *storage.Storage
 	// Main storage stacks for incoming records
 	serverBuffers [][]Record
 	// Protects all internal structures
@@ -99,14 +99,14 @@ func newDataServer() *dataServer {
 		}
 	}
 
-	fs := filesystem.New("scalog-db")
+	disk := storage.NewStorage("storage")
 	s := &dataServer{
 		replicaID:        replicaID,
 		replicaCount:     replicaCount,
 		shardID:          shardID,
 		lastCommittedCut: make(order.CommittedCut),
 		isFinalized:      false,
-		stableStorage:    &fs,
+		disk:             disk,
 		serverBuffers:    make([][]Record, replicaCount),
 		mu:               sync.RWMutex{},
 		shardServers:     shardPods,
@@ -270,7 +270,7 @@ func (server *dataServer) receiveFinalizedCuts(stream om.Order_ReportClient, sen
 					for i := 0; i < numLogs; i++ {
 						server.mu.Lock()
 						server.serverBuffers[idx][int(offset)+i].gsn = cutGSN
-						server.stableStorage.WriteLog(cutGSN, server.serverBuffers[idx][int(offset)+i].record)
+						server.disk.Write(int64(cutGSN), server.serverBuffers[idx][int(offset)+i].record)
 						// If you were the one who received this client req, you should respond to it
 						if idx == int(server.replicaID) {
 							server.serverBuffers[idx][int(offset)+i].commitResp <- cutGSN
