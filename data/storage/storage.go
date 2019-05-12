@@ -85,8 +85,8 @@ type indexEntry struct {
 payload is the payload of a logEntry.
 */
 type payload struct {
-	gsn    int64
-	record string
+	Gsn    int64
+	Record string
 }
 
 /*
@@ -107,6 +107,8 @@ AddPartition TODO
 */
 func (s *Storage) AddPartition() int32 {
 	p := newPartition(s.storagePath, s.nextPartitionID)
+	err := os.MkdirAll(p.partitionPath, os.ModePerm)
+	check(err)
 	s.partitions[p.partitionID] = p
 	s.nextPartitionID++
 	return p.partitionID
@@ -142,10 +144,10 @@ func (p *partition) checkActiveSegment() {
 
 func (p *partition) addActiveSegment() {
 	if p.activeSegment != nil {
+		p.nextBaseOffset += int64(p.activeSegment.nextRelativeOffset)
 		p.activeSegment.log.Close()
 		p.activeSegment.index.Close()
 	}
-	p.nextBaseOffset += int64(p.activeSegment.nextRelativeOffset)
 	activeSegment := newSegment(p.partitionPath, p.nextBaseOffset)
 	p.segments[activeSegment.baseOffset] = activeSegment
 	p.activeSegment = activeSegment
@@ -231,8 +233,8 @@ func newIndexEntry(relativeOffset int32, position int32) *indexEntry {
 
 func newPayload(gsn int64, record string) string {
 	payload := &payload{
-		gsn:    gsn,
-		record: record,
+		Gsn:    gsn,
+		Record: record,
 	}
 	out, err := json.Marshal(payload)
 	check(err)
