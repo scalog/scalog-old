@@ -22,6 +22,11 @@ type Storage struct {
 	partitions map[int64]*partition
 }
 
+/*
+partition is Scalog's unit of storage. A partition is an ordered sequence
+of entries that is appended to. A partition is represented as a directory
+split into segments.
+*/
 type partition struct {
 	// path to partition directory
 	partitionPath string
@@ -31,12 +36,18 @@ type partition struct {
 	maxSegmentSize int64
 	// offset to be assigned to next entry
 	nextOffset int64
+	// position to be assigned to next entry
+	nextPosition int64
 	// segment that will be written to
 	activeSegment *segment
 	// baseOffset to segment
 	segments map[int64]*segment
 }
 
+/*
+segment is a continuous subsection of a partition. A segment is represented
+as an index file and a log file.
+*/
 type segment struct {
 	// offset of first entry in segment
 	baseOffset int64
@@ -50,6 +61,9 @@ type segment struct {
 	indexWriter *bufio.Writer
 }
 
+/*
+logEntry is a single entry in a segment's log file.
+*/
 type logEntry struct {
 	offset      int64
 	position    int64
@@ -57,11 +71,17 @@ type logEntry struct {
 	payload     string
 }
 
+/*
+indexEntry is a single entry in a segment's index file.
+*/
 type indexEntry struct {
 	offset   int64
 	position int64
 }
 
+/*
+payload is the payload of a logEntry.
+*/
 type payload struct {
 	gsn    int64
 	record string
@@ -90,6 +110,7 @@ func (s *Storage) AddPartition() int64 {
 		partitionID:    s.nextPartitionID,
 		maxSegmentSize: 1024,
 		nextOffset:     0,
+		nextPosition:   0,
 		activeSegment:  nil,
 		segments:       make(map[int64]*segment),
 	}
@@ -128,16 +149,19 @@ func (p *partition) checkActiveSegment() {
 		}
 		p.segments[p.nextOffset] = newSegment(p.partitionPath, p.nextOffset)
 		p.activeSegment = p.segments[p.nextOffset]
+		p.nextPosition = 0
 	}
 }
 
 func (p *partition) writeToActiveSegment(gsn int64, record string) {
-	// TODO
-	// Write log entry
+	logEntry := newLogEntry(p.nextOffset, p.nextPosition, gsn, record)
+	p.activeSegment.logWriter.WriteString(logEntry.String())
 	p.activeSegment.logWriter.Flush()
-	// Write index entry
+	indexEntry := newIndexEntry(p.nextOffset, p.nextPosition)
+	p.activeSegment.indexWriter.WriteString(indexEntry.String())
 	p.activeSegment.indexWriter.Flush()
 	p.nextOffset++
+	p.nextPosition += logEntry.payloadSize
 }
 
 func newSegment(partitionPath string, baseOffset int64) *segment {
@@ -169,14 +193,23 @@ func newIndex(partitionPath string, baseOffset int64) *os.File {
 	return f
 }
 
-func newLogEntry(offset int64, gsn int64, record string) *logEntry {
-	// TODO
-	return nil
+func newLogEntry(offset int64, position int64, gsn int64, record string) *logEntry {
+	payload := newPayload(gsn, record)
+	l := &logEntry{
+		offset:      offset,
+		position:    position,
+		payloadSize: int64(len(payload)),
+		payload:     payload,
+	}
+	return l
 }
 
 func newIndexEntry(offset int64, position int64) *indexEntry {
-	// TODO
-	return nil
+	i := &indexEntry{
+		offset:   offset,
+		position: position,
+	}
+	return i
 }
 
 func newPayload(gsn int64, record string) string {
@@ -187,6 +220,15 @@ func newPayload(gsn int64, record string) string {
 	out, err := json.Marshal(payload)
 	check(err)
 	return string(out)
+}
+
+func (l logEntry) String() string {
+	return fmt.Sprintf("offset: %d, position: %d, payloadsize: %d, payload: %s",
+		l.offset, l.position, l.payloadSize, l.payload)
+}
+
+func (i indexEntry) String() string {
+	return fmt.Sprintf("offset: %d, position: %d", i.offset, i.position)
 }
 
 func check(e error) {
