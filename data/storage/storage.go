@@ -17,9 +17,9 @@ type Storage struct {
 	// path to storage directory
 	storagePath string
 	// ID to be assigned to next partition added
-	nextPartitionID int64
+	nextPartitionID int32
 	// partitionID to partition
-	partitions map[int64]*partition
+	partitions map[int32]*partition
 }
 
 /*
@@ -31,13 +31,11 @@ type partition struct {
 	// path to partition directory
 	partitionPath string
 	// ID assigned to partition
-	partitionID int64
+	partitionID int32
 	// max number of entries for a single segment
-	maxSegmentSize int64
-	// offset to be assigned to next entry
-	nextOffset int64
-	// position to be assigned to next entry
-	nextPosition int64
+	maxSegmentSize int32
+	// base offset to be assigned to next segment
+	nextBaseOffset int64
 	// segment that will be written to
 	activeSegment *segment
 	// baseOffset to segment
@@ -51,6 +49,10 @@ as an index file and a log file.
 type segment struct {
 	// offset of first entry in segment
 	baseOffset int64
+	// relativeOffset to be assigned to next entry
+	nextRelativeOffset int32
+	// position to be assigned to next entry
+	nextPosition int32
 	// log file
 	log *os.File
 	// index file
@@ -65,18 +67,18 @@ type segment struct {
 logEntry is a single entry in a segment's log file.
 */
 type logEntry struct {
-	offset      int64
-	position    int64
-	payloadSize int64
-	payload     string
+	relativeOffset int32
+	position       int32
+	payloadSize    int32
+	payload        string
 }
 
 /*
 indexEntry is a single entry in a segment's index file.
 */
 type indexEntry struct {
-	offset   int64
-	position int64
+	relativeOffset int32
+	position       int32
 }
 
 /*
@@ -95,7 +97,7 @@ func NewStorage(storagePath string) *Storage {
 	check(err)
 	s := &Storage{
 		storagePath: storagePath,
-		partitions:  make(map[int64]*partition),
+		partitions:  make(map[int32]*partition),
 	}
 	return s
 }
@@ -103,17 +105,8 @@ func NewStorage(storagePath string) *Storage {
 /*
 AddPartition TODO
 */
-func (s *Storage) AddPartition() int64 {
-	partitionPath := path.Join(s.storagePath, fmt.Sprintf("partition%d", s.nextPartitionID))
-	p := &partition{
-		partitionPath:  partitionPath,
-		partitionID:    s.nextPartitionID,
-		maxSegmentSize: 1024,
-		nextOffset:     0,
-		nextPosition:   0,
-		activeSegment:  nil,
-		segments:       make(map[int64]*segment),
-	}
+func (s *Storage) AddPartition() int32 {
+	p := newPartition(s.storagePath, s.nextPartitionID)
 	s.partitions[p.partitionID] = p
 	s.nextPartitionID++
 	return p.partitionID
@@ -132,82 +125,106 @@ func (s *Storage) Write(gsn int64, record string) {
 /*
 WriteToPartition TODO
 */
-func (s *Storage) WriteToPartition(partitionID int64, gsn int64, record string) {
+func (s *Storage) WriteToPartition(partitionID int32, gsn int64, record string) {
 	p, in := s.partitions[partitionID]
 	if !in {
 		panic(fmt.Sprintf("Attempted to write to non-existant partition %d", partitionID))
 	}
 	p.checkActiveSegment()
-	p.writeToActiveSegment(gsn, record)
+	p.activeSegment.writeToSegment(gsn, record)
 }
 
 func (p *partition) checkActiveSegment() {
-	if p.nextOffset%p.maxSegmentSize == 0 {
-		if p.activeSegment != nil {
-			p.activeSegment.log.Close()
-			p.activeSegment.index.Close()
-		}
-		p.segments[p.nextOffset] = newSegment(p.partitionPath, p.nextOffset)
-		p.activeSegment = p.segments[p.nextOffset]
-		p.nextPosition = 0
+	if p.activeSegment == nil || p.activeSegment.nextRelativeOffset >= p.maxSegmentSize {
+		p.addActiveSegment()
 	}
 }
 
-func (p *partition) writeToActiveSegment(gsn int64, record string) {
-	logEntry := newLogEntry(p.nextOffset, p.nextPosition, gsn, record)
-	p.activeSegment.logWriter.WriteString(logEntry.String())
-	p.activeSegment.logWriter.Flush()
-	indexEntry := newIndexEntry(p.nextOffset, p.nextPosition)
-	p.activeSegment.indexWriter.WriteString(indexEntry.String())
-	p.activeSegment.indexWriter.Flush()
-	p.nextOffset++
-	p.nextPosition += logEntry.payloadSize
+func (p *partition) addActiveSegment() {
+	if p.activeSegment != nil {
+		p.activeSegment.log.Close()
+		p.activeSegment.index.Close()
+	}
+	p.nextBaseOffset += int64(p.activeSegment.nextRelativeOffset)
+	activeSegment := newSegment(p.partitionPath, p.nextBaseOffset)
+	p.segments[activeSegment.baseOffset] = activeSegment
+	p.activeSegment = activeSegment
+}
+
+func (s *segment) writeToSegment(gsn int64, record string) {
+	logEntry := newLogEntry(s.nextRelativeOffset, s.nextPosition, gsn, record)
+	s.logWriter.WriteString(logEntry.String())
+	s.logWriter.Flush()
+	indexEntry := newIndexEntry(s.nextRelativeOffset, s.nextPosition)
+	s.indexWriter.WriteString(indexEntry.String())
+	s.indexWriter.Flush()
+	s.nextRelativeOffset++
+	s.nextPosition += logEntry.payloadSize
+}
+
+func newPartition(storagePath string, partitionID int32) *partition {
+	partitionPath := path.Join(storagePath, fmt.Sprintf("partition%d", partitionID))
+	p := &partition{
+		partitionPath:  partitionPath,
+		partitionID:    partitionID,
+		maxSegmentSize: 1024,
+		nextBaseOffset: 0,
+		activeSegment:  nil,
+		segments:       make(map[int64]*segment),
+	}
+	return p
 }
 
 func newSegment(partitionPath string, baseOffset int64) *segment {
-	log := newLog(partitionPath, baseOffset)
-	index := newIndex(partitionPath, baseOffset)
+	log, logWriter := newLog(partitionPath, baseOffset)
+	index, indexWriter := newIndex(partitionPath, baseOffset)
 	s := &segment{
-		baseOffset:  baseOffset,
-		log:         log,
-		index:       index,
-		logWriter:   bufio.NewWriter(log),
-		indexWriter: bufio.NewWriter(index),
+		baseOffset:         baseOffset,
+		nextRelativeOffset: 0,
+		nextPosition:       0,
+		log:                log,
+		index:              index,
+		logWriter:          logWriter,
+		indexWriter:        indexWriter,
 	}
 	return s
 }
 
-func newLog(partitionPath string, baseOffset int64) *os.File {
+func newLog(partitionPath string, baseOffset int64) (*os.File, *bufio.Writer) {
 	logName := fmt.Sprintf("%d.log", baseOffset)
 	logPath := path.Join(partitionPath, logName)
 	f, err := os.Create(logPath)
 	check(err)
-	return f
+	w := bufio.NewWriter(f)
+	w.WriteString(fmt.Sprintf("baseoffset: %d\n", baseOffset))
+	return f, w
 }
 
-func newIndex(partitionPath string, baseOffset int64) *os.File {
+func newIndex(partitionPath string, baseOffset int64) (*os.File, *bufio.Writer) {
 	indexName := fmt.Sprintf("%d.index", baseOffset)
 	indexPath := path.Join(partitionPath, indexName)
 	f, err := os.Create(indexPath)
 	check(err)
-	return f
+	w := bufio.NewWriter(f)
+	w.WriteString(fmt.Sprintf("baseoffset: %d\n", baseOffset))
+	return f, w
 }
 
-func newLogEntry(offset int64, position int64, gsn int64, record string) *logEntry {
+func newLogEntry(relativeOffset int32, position int32, gsn int64, record string) *logEntry {
 	payload := newPayload(gsn, record)
 	l := &logEntry{
-		offset:      offset,
-		position:    position,
-		payloadSize: int64(len(payload)),
-		payload:     payload,
+		relativeOffset: relativeOffset,
+		position:       position,
+		payloadSize:    int32(len(payload)),
+		payload:        payload,
 	}
 	return l
 }
 
-func newIndexEntry(offset int64, position int64) *indexEntry {
+func newIndexEntry(relativeOffset int32, position int32) *indexEntry {
 	i := &indexEntry{
-		offset:   offset,
-		position: position,
+		relativeOffset: relativeOffset,
+		position:       position,
 	}
 	return i
 }
@@ -223,12 +240,12 @@ func newPayload(gsn int64, record string) string {
 }
 
 func (l logEntry) String() string {
-	return fmt.Sprintf("offset: %d, position: %d, payloadsize: %d, payload: %s",
-		l.offset, l.position, l.payloadSize, l.payload)
+	return fmt.Sprintf("relativeoffset: %d, position: %d, payloadsize: %d, payload: %s\n",
+		l.relativeOffset, l.position, l.payloadSize, l.payload)
 }
 
 func (i indexEntry) String() string {
-	return fmt.Sprintf("offset: %d, position: %d", i.offset, i.position)
+	return fmt.Sprintf("relativeoffset: %d, position: %d\n", i.relativeOffset, i.position)
 }
 
 func check(e error) {
