@@ -36,6 +36,32 @@ type Record struct {
 // Server's view of latest cuts in all servers of the shard
 type ShardCut []int
 
+type clientSubscriptionState int
+
+const (
+	// BEHIND indicates the client has not received a response for a record that was committed after
+	// it began subscribing
+	BEHIND clientSubscriptionState = 0
+	// UPDATED indicates the client has received a response for a record that was committed after it
+	// began subscribing
+	UPDATED clientSubscriptionState = 1
+	// CLOSED indiciates the gRPC connection has been closed
+	CLOSED clientSubscriptionState = 2
+)
+
+type clientSubscription struct {
+	// Indicates whether the client has received responses for past committed records or whether the
+	// gRPC connection has been closed
+	state clientSubscriptionState
+	// Channel on which to send [SubscribeResponse]s to be forwarded to the client
+	respChan chan messaging.SubscribeResponse
+	// Global sequence number that client started subscribing from
+	startGsn int32
+	// The global sequence number of the first recorded that was committed after the client began
+	// subscribing and has responded to the client
+	firstNewGsn int32
+}
+
 type dataServer struct {
 	// ID of this data server within a shard
 	replicaID int32
@@ -57,6 +83,16 @@ type dataServer struct {
 	shardServers []chan messaging.ReplicateRequest
 	// Client for API calls with kubernetes
 	kubeClient *kubernetes.Clientset
+	// Clients that have subscribed to this data server
+	clientSubs []*clientSubscription
+	// Mutex for reading and writing to clientSubs
+	clientSubsMutex sync.RWMutex
+	// Channel for clients that have newly subscribed to this data server
+	newClientSubsChan chan *clientSubscription
+	// Channel for sending committed gsn to be forwarded to subscribed clients
+	clientSubsResponseChan chan int32
+	// Map from gsn to committed record
+	committedRecords map[int32]string
 }
 
 /*
@@ -101,18 +137,25 @@ func newDataServer() *dataServer {
 
 	fs := filesystem.New("scalog-db")
 	s := &dataServer{
-		replicaID:        replicaID,
-		replicaCount:     replicaCount,
-		shardID:          shardID,
-		lastCommittedCut: make(order.CommittedCut),
-		isFinalized:      false,
-		stableStorage:    &fs,
-		serverBuffers:    make([][]Record, replicaCount),
-		mu:               sync.RWMutex{},
-		shardServers:     shardPods,
-		kubeClient:       clientset,
+		replicaID:              replicaID,
+		replicaCount:           replicaCount,
+		shardID:                shardID,
+		lastCommittedCut:       make(order.CommittedCut),
+		isFinalized:            false,
+		stableStorage:          &fs,
+		serverBuffers:          make([][]Record, replicaCount),
+		mu:                     sync.RWMutex{},
+		shardServers:           shardPods,
+		kubeClient:             clientset,
+		clientSubs:             make([]*clientSubscription, 100),
+		clientSubsMutex:        sync.RWMutex{},
+		newClientSubsChan:      make(chan *clientSubscription),
+		clientSubsResponseChan: make(chan int32),
+		committedRecords:       make(map[int32]string, 100), // TODO: load initial capacity from config
 	}
 	s.setupOrderLayerComunication()
+	go s.respondToClientSubs()
+	go s.handleNewClientSubs()
 	return s
 }
 
@@ -271,6 +314,8 @@ func (server *dataServer) receiveFinalizedCuts(stream om.Order_ReportClient, sen
 						server.mu.Lock()
 						server.serverBuffers[idx][int(offset)+i].gsn = cutGSN
 						server.stableStorage.WriteLog(cutGSN, server.serverBuffers[idx][int(offset)+i].record)
+						server.committedRecords[cutGSN] = server.serverBuffers[idx][int(offset)+i].record
+						server.clientSubsResponseChan <- cutGSN
 						// If you were the one who received this client req, you should respond to it
 						if idx == int(server.replicaID) {
 							server.serverBuffers[idx][int(offset)+i].commitResp <- cutGSN
@@ -291,6 +336,71 @@ func (server *dataServer) receiveFinalizedCuts(stream om.Order_ReportClient, sen
 		// update stored cut & log number
 		server.lastCommittedCut = in.CommitedCuts
 	}
+}
+
+/*
+	Listens for new client subscriptions and assynchronously responds to the client with past committed
+	records.
+*/
+func (server *dataServer) handleNewClientSubs() {
+	for clientSub := range server.newClientSubsChan {
+		server.clientSubsMutex.Lock()
+		server.clientSubs = append(server.clientSubs, clientSub)
+		server.clientSubsMutex.Unlock()
+		go server.updateBehindClientSub(clientSub)
+	}
+}
+
+/*
+	Responds to a client with past committed records.
+*/
+func (server *dataServer) updateBehindClientSub(clientSub *clientSubscription) {
+	for currGsn := clientSub.startGsn; ; currGsn++ {
+		if clientSub.state == CLOSED || (clientSub.state == UPDATED && currGsn >= clientSub.firstNewGsn) {
+			return
+		}
+		record, in := server.committedRecords[currGsn]
+		if !in {
+			break
+		}
+		resp := messaging.SubscribeResponse{
+			Gsn:    currGsn,
+			Record: record,
+		}
+		clientSub.respChan <- resp
+	}
+	clientSub.state = UPDATED
+}
+
+/*
+	Listens for newly committed records and assynchronously responds to all active clients.
+*/
+func (server *dataServer) respondToClientSubs() {
+	for gsn := range server.clientSubsResponseChan {
+		server.clientSubsMutex.Lock()
+		for _, clientSub := range server.clientSubs {
+			if clientSub.state != CLOSED {
+				go server.respondToClientSub(clientSub, gsn)
+			}
+		}
+		server.clientSubsMutex.Unlock()
+	}
+}
+
+/*
+	Responds to a client with a newly committed record.
+*/
+func (server *dataServer) respondToClientSub(clientSub *clientSubscription, gsn int32) {
+	if clientSub.state == BEHIND {
+		clientSub.firstNewGsn = gsn
+		clientSub.state = UPDATED
+	}
+	record := server.committedRecords[gsn]
+	resp := messaging.SubscribeResponse{
+		Gsn:    gsn,
+		Record: record,
+	}
+	clientSub.respChan <- resp
 }
 
 func (server *dataServer) setupOrderLayerComunication() {
