@@ -5,22 +5,19 @@ GREEN="\033[1;32m"
 YELLOW="\033[1;33m"
 NC="\033[0m"
 
-echo -e "Scalog Install\n"
-echo "This script is meant to bootstrap a scalog cluster quickly on a cluster of machines. Within this cluster, we expect one machine to be used to bootstrap the kubernetes cluster, and all other machines should simply join this cluster."
-
 read -p $'\e[33mIs this the primary machine? (yes/no):\e[0m' isPrimary
 while ! [[ "$isPrimary" =~ ^(yes|no)$ ]]
 do
   read -p $'\e[33mIs this the primary machine? (yes/no):\e[0m' isPrimary
   echo -e "${RED}Enter a valid string${NC}"
-done 
+done
 
 echo "Installing docker on this local machine"
 
 # Install Docker CE
 ## Set up the repository:
 ### Install packages to allow apt to use a repository over HTTPS
-sudo apt-get update > /dev/null 2>&1  && sudo apt-get install -y apt-transport-https ca-certificates curl software-properties-common > /dev/null 2>&1
+sudo apt-get update && sudo apt-get install -y apt-transport-https ca-certificates curl software-properties-common
 if [ $? -ne 0 ]
 then
   echo -e "${RED}Failed to install apt-transport-https ca-certificates curl software-properties-common${NC}"
@@ -28,7 +25,7 @@ then
 fi
 
 ### Add Docker’s official GPG key
-(curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -) > /dev/null 2>&1
+(curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -)
 if [ $? -ne 0 ]
 then
   echo -e "${RED}Failed to add Docker's GPG key${NC}"
@@ -47,7 +44,7 @@ then
 fi
 
 ## Install Docker CE.
-sudo apt-get update > /dev/null 2>&1 && sudo apt-get install -y docker-ce=18.06.2~ce~3-0~ubuntu > /dev/null 2>&1
+sudo apt-get update && sudo apt-get install -y docker-ce=18.06.2~ce~3-0~ubuntu
 if [ $? -ne 0 ]
 then
   echo -e "${RED}Failed to install Docker CE${NC}"
@@ -57,28 +54,28 @@ fi
 echo -e "${GREEN}Successfully installed Docker${NC}"
 echo "Installing kubeadm on this local machine..."
 
-sudo apt-get update > /dev/null 2>&1 && sudo apt-get install -y apt-transport-https curl > /dev/null 2>&1
+sudo apt-get update && sudo apt-get install -y apt-transport-https curl
 if [ $? -ne 0 ]
 then
   echo -e "${RED}Failed to install apt-transport-https curl${NC}"
   exit 1
 fi
 
-(curl -s https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo apt-key add -) > /dev/null 2>&1
+(curl -s https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo apt-key add -)
 if [ $? -ne 0 ]
 then
   echo -e "${RED}Failed to add kubeadm apt-key${NC}"
   exit 1
 fi
 
-(echo "deb https://apt.kubernetes.io/ kubernetes-xenial main" | sudo tee -a /etc/apt/sources.list.d/kubernetes.list) > /dev/null 2>&1
+(echo "deb https://apt.kubernetes.io/ kubernetes-xenial main" | sudo tee -a /etc/apt/sources.list.d/kubernetes.list)
 if [ $? -ne 0 ]
 then
   echo -e "${RED}Failed to set kubenretes repository${NC}"
   exit 1
 fi
 
-sudo apt-get update > /dev/null 2>&1 && sudo apt-get install -y kubelet kubeadm kubectl > /dev/null 2>&1 && sudo apt-mark hold kubelet kubeadm kubectl > /dev/null 2>&1
+sudo apt-get update && sudo apt-get install -y kubelet kubeadm kubectl && sudo apt-mark hold kubelet kubeadm kubectl
 if [ $? -ne 0 ]
 then
   echo -e "${RED}Failed to install kubeadm${NC}"
@@ -102,7 +99,7 @@ fi
 echo -e "${GREEN}Successfully installed kubeadm!!!${NC}\n"
 
 if [ $isPrimary == "yes" ]
-then 
+then
   echo "Bootstrapping kubernetes cluster..."
 
   kubeout=$(sudo kubeadm init --pod-network-cidr=10.244.0.0/16)
@@ -120,7 +117,7 @@ then
   fi
 
   # Create Pod Network Layer
-  kubectl apply -f https://raw.githubusercontent.com/coreos/flannel/a70459be0084506e4ec919aa1c114638878db11b/Documentation/kube-flannel.yml > /dev/null 2>&1
+  kubectl apply -f https://raw.githubusercontent.com/coreos/flannel/a70459be0084506e4ec919aa1c114638878db11b/Documentation/kube-flannel.yml
   if [ $? -ne 0 ]
   then
     echo -e "${RED}Failed to create pod network layer for kubernetes${NC}"
@@ -130,7 +127,7 @@ then
   echo -e $kubeout
   echo -e "${GREEN}Kubernetes cluster successfully bootstrapped!${NC}"
   echo -e "${YELLOW}Copy paste the kubeadm script output into the other servers in this cluster. It should look something like kubeadm join 130.127.133.78:6443 --token nrorf3.vdp46o3fa75ykvch \ --discovery-token-ca-cert-hash sha256:aeab241dce8a6d3eb9e0b6dc98aa39342357f9b3f204d281bb87e526afb4691a"
-  
+
   read -p $'\e[33mPress enter when the other nodes have joined the cluster:\e[0m'
 
   echo "Starting Scalog..."
@@ -165,7 +162,7 @@ then
   kubectl create -f scalog/operator.yaml
   kubectl create -f scalog/crds/scalog_v1alpha1_scalogservice_cr.yaml
 
-else 
+else
   # Follower
   echo -e "${YELLOW}Copy and paste the kubeadm join script received from the primary machine. It should look something like: kubeadm join 130.127.133.78:6443 --token nrorf3.vdp46o3fa75ykvch --discovery-token-ca-cert-hash sha256:aeab241dce8a6d3eb9e0b6dc98aa39342357f9b3f204d281bb87e526afb4691a. It helps if you put sudo before it.${NC}"
 fi
