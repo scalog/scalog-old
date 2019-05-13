@@ -156,8 +156,7 @@ func (s *Storage) writeToPartition(partitionID int32, gsn int64, record string) 
 	if err != nil {
 		return err
 	}
-	p.activeSegment.writeToSegment(gsn, record)
-	return nil
+	return p.activeSegment.writeToSegment(gsn, record)
 }
 
 func (p *partition) checkActiveSegment() error {
@@ -182,15 +181,22 @@ func (p *partition) addActiveSegment() error {
 	return nil
 }
 
-func (s *segment) writeToSegment(gsn int64, record string) {
+func (s *segment) writeToSegment(gsn int64, record string) error {
 	logEntry := newLogEntry(s.nextRelativeOffset, s.nextPosition, gsn, record)
-	s.logWriter.WriteString(logEntry.Stats())
+	_, writeLogErr := s.logWriter.WriteString(logEntry.Stats())
+	if writeLogErr != nil {
+		return writeLogErr
+	}
 	s.logWriter.Flush()
 	indexEntry := newIndexEntry(s.nextRelativeOffset, s.nextPosition)
-	s.indexWriter.WriteString(indexEntry.Stats())
+	_, writeIndexErr := s.indexWriter.WriteString(indexEntry.Stats())
+	if writeIndexErr != nil {
+		return writeIndexErr
+	}
 	s.indexWriter.Flush()
 	s.nextRelativeOffset++
 	s.nextPosition += logEntry.payloadSize
+	return nil
 }
 
 func newPartition(storagePath string, partitionID int32) *partition {
@@ -230,12 +236,15 @@ func newSegment(partitionPath string, baseOffset int64) (*segment, error) {
 func newLog(partitionPath string, baseOffset int64) (*os.File, *bufio.Writer, error) {
 	logName := fmt.Sprintf("%d.log", baseOffset)
 	logPath := path.Join(partitionPath, logName)
-	f, err := os.Create(logPath)
-	if err != nil {
-		return nil, nil, err
+	f, fileErr := os.Create(logPath)
+	if fileErr != nil {
+		return nil, nil, fileErr
 	}
 	w := bufio.NewWriter(f)
-	w.WriteString(fmt.Sprintf("baseoffset: %d\n", baseOffset))
+	_, writeErr := w.WriteString(fmt.Sprintf("baseoffset: %d\n", baseOffset))
+	if writeErr != nil {
+		return nil, nil, writeErr
+	}
 	return f, w, nil
 }
 
@@ -247,7 +256,10 @@ func newIndex(partitionPath string, baseOffset int64) (*os.File, *bufio.Writer, 
 		return nil, nil, err
 	}
 	w := bufio.NewWriter(f)
-	w.WriteString(fmt.Sprintf("baseoffset: %d\n", baseOffset))
+	_, writeErr := w.WriteString(fmt.Sprintf("baseoffset: %d\n", baseOffset))
+	if writeErr != nil {
+		return nil, nil, writeErr
+	}
 	return f, w, nil
 }
 

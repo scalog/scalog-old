@@ -99,7 +99,11 @@ func newDataServer() *dataServer {
 		}
 	}
 
-	disk := storage.NewStorage("storage")
+	disk, err := storage.NewStorage("storage")
+	if err != nil {
+		// TODO handle error
+		logger.Printf("Failed to initialize storage")
+	}
 	s := &dataServer{
 		replicaID:        replicaID,
 		replicaCount:     replicaCount,
