@@ -248,6 +248,10 @@ func getPositionOfRelativeOffset(indexPath string, relativeOffset int32) (int32,
 		targetOffset := int32(binary.LittleEndian.Uint32(buffer[target*8:]))
 		if relativeOffset == targetOffset {
 			return int32(binary.LittleEndian.Uint32(buffer[target*8+4:])), nil
+		} else if relativeOffset > targetOffset {
+			left = target
+		} else {
+			right = target
 		}
 	}
 	return -1, fmt.Errorf("Failed to find entry with relative offset %d", relativeOffset)
