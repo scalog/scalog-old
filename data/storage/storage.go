@@ -153,19 +153,18 @@ func (s *Storage) writeToPartition(partitionID int32, gsn int64, record string) 
 	if !in {
 		return fmt.Errorf("Attempted to write to non-existant partition %d", partitionID)
 	}
-	err := p.checkActiveSegment(gsn)
-	if err != nil {
-		return err
-	}
-	return p.activeSegment.writeToSegment(gsn, record)
+	return p.writeToActiveSegment(gsn, record)
 }
 
-func (p *partition) checkActiveSegment(gsn int64) error {
+func (p *partition) writeToActiveSegment(gsn int64, record string) error {
 	if p.activeSegment == nil || p.activeSegment.nextRelativeOffset >= p.maxSegmentSize ||
 		gsn > p.activeSegment.baseOffset+int64(p.maxSegmentSize) {
-		return p.addActiveSegment(gsn)
+		err := p.addActiveSegment(gsn)
+		if err != nil {
+			return err
+		}
 	}
-	return nil
+	return p.activeSegment.writeToSegment(gsn, record)
 }
 
 func (p *partition) addActiveSegment(gsn int64) error {
