@@ -56,8 +56,28 @@ func (server *dataServer) Replicate(stream pb.Data_ReplicateServer) error {
 	}
 }
 
-func (server *dataServer) Subscribe(*pb.SubscribeRequest, pb.Data_SubscribeServer) error {
-	// TODO: Implement
+func (server *dataServer) Subscribe(req *pb.SubscribeRequest, stream pb.Data_SubscribeServer) error {
+	logger.Printf("Received SUBSCRIBE request from client starting at GSN %d", req.SubscriptionGsn)
+
+	clientSub := &clientSubscription{
+		state:       BEHIND,
+		respChan:    make(chan messaging.SubscribeResponse),
+		startGsn:    req.SubscriptionGsn,
+		firstNewGsn: -1,
+	}
+	server.newClientSubsChan <- clientSub
+
+	// Respond to client with committed records
+	for resp := range clientSub.respChan {
+		if err := stream.Send(&resp); err != nil {
+			logger.Printf("Failed to respond to client for record with GSN [%d]", resp.Gsn)
+			clientSub.state = CLOSED
+			return err
+		}
+		logger.Printf("Responded to client subscription for record with GSN [%d]", resp.Gsn)
+	}
+
+	clientSub.state = CLOSED
 	return nil
 }
 

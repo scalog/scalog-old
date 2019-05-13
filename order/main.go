@@ -2,25 +2,23 @@ package order
 
 import (
 	"fmt"
-	"log"
 	"net"
 	"sort"
 	"time"
 
 	"github.com/scalog/scalog/internal/pkg/golib"
-
-	"k8s.io/apimachinery/pkg/types"
-
 	"github.com/scalog/scalog/internal/pkg/kube"
-	"github.com/scalog/scalog/logger"
+	log "github.com/scalog/scalog/logger"
+
 	"github.com/scalog/scalog/order/messaging"
 	"github.com/spf13/viper"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
+	"k8s.io/apimachinery/pkg/types"
 )
 
 func Start() {
-	logger.Printf("Ordering layer server starting on %d\n", viper.Get("port"))
+	log.Printf("Ordering layer server starting on %d\n", viper.Get("port"))
 	lis, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", viper.Get("port")))
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
@@ -42,7 +40,7 @@ func Start() {
 	go server.proposalRaftBatch()
 	go server.listenForRaftCommits()
 
-	logger.Printf("Order layer server available on port %d\n", viper.Get("port"))
+	log.Printf("Order layer server available on port %d\n", viper.Get("port"))
 	//Blocking, must be last step
 	grpcServer.Serve(lis)
 }
@@ -69,7 +67,7 @@ func getRaftIndexPeerUrls() (int, []string) {
 	size := len(pods.Items)
 	peers := make([]peerIDAndURL, size)
 	for i, pod := range pods.Items {
-		logger.Printf("Peer ip: " + pod.Status.PodIP + ", uid: " + string(pod.UID))
+		log.Printf("Peer ip: " + pod.Status.PodIP + ", uid: " + string(pod.UID))
 		peers[i] = peerIDAndURL{
 			id:  pod.UID,
 			url: fmt.Sprintf("http://%s:%s", pod.Status.PodIP, viper.GetString("raftPort")),
@@ -81,7 +79,7 @@ func getRaftIndexPeerUrls() (int, []string) {
 	})
 
 	id := viper.GetString("uid")
-	logger.Printf("My uid: " + id)
+	log.Printf("My uid: " + id)
 
 	index := -1
 	urls := make([]string, size)
