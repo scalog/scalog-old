@@ -1,8 +1,3 @@
-# Dockerfile References: https://docs.docker.com/engine/reference/builder/
-
-# Determine which image type to build. Builds data layer image by default
-ARG image_type=data
-
 # Start from golang v1.11 base image
 FROM golang:1.11 as builder
 
@@ -20,8 +15,8 @@ RUN set -x && \
 # Build the Go app
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -ldflags '-extldflags "-static"' -o scalog .
 
-######## Start a new stage from scratch for data layer #######
-FROM alpine:latest  
+######## Start a new stage from scratch #######
+FROM alpine:latest
 
 RUN apk --no-cache add ca-certificates
 
@@ -33,5 +28,3 @@ COPY --from=builder /go/src/github.com/scalog/scalog/scalog /app/
 WORKDIR /app
 
 EXPOSE 21024
-
-CMD ["./scalog", "data"]
