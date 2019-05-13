@@ -8,8 +8,6 @@ import (
 	"io/ioutil"
 	"os"
 	"path"
-	"strconv"
-	"strings"
 
 	"github.com/scalog/scalog/logger"
 )
@@ -219,20 +217,7 @@ func (s *Storage) readFromPartition(partitionID int32, gsn int64) (string, error
 }
 
 func (p *partition) getSegmentContainingGSN(gsn int64) (*segment, error) {
-	// TODO simplify by using p.segments' keys
-	files, err := ioutil.ReadDir(p.partitionPath)
-	if err != nil {
-		return nil, err
-	}
-	for _, file := range files {
-		if strings.HasSuffix(file.Name(), indexSuffix) {
-			continue
-		}
-		indexName := strings.TrimSuffix(file.Name(), logSuffix)
-		baseOffset, err := strconv.ParseInt(indexName, 10, 64)
-		if err != nil {
-			return nil, err
-		}
+	for baseOffset := range p.segments {
 		if gsn >= baseOffset && gsn < baseOffset+int64(p.maxSegmentSize) {
 			return p.segments[baseOffset], nil
 		}
