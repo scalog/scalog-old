@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path"
+
+	"github.com/scalog/scalog/logger"
 )
 
 /*
@@ -93,73 +95,99 @@ type payload struct {
 NewStorage creates a new directory at [storagePath] and returns a new instance
 of storage for creating partitions and writing to them.
 */
-func NewStorage(storagePath string) *Storage {
-	err := os.MkdirAll(storagePath, os.ModePerm)
-	check(err)
+func NewStorage(storagePath string) (*Storage, error) {
+	storageErr := os.MkdirAll(storagePath, os.ModePerm)
+	if storageErr != nil {
+		logger.Printf(storageErr.Error())
+		return nil, storageErr
+	}
 	s := &Storage{
 		storagePath: storagePath,
 		partitions:  make(map[int32]*partition),
 	}
-	return s
+	_, partitionErr := s.AddPartition()
+	if partitionErr != nil {
+		logger.Printf(partitionErr.Error())
+		return nil, partitionErr
+	}
+	return s, nil
 }
 
 /*
 AddPartition adds a new partition to storage and returns the partition's id.
 */
-func (s *Storage) AddPartition() int32 {
+func (s *Storage) AddPartition() (int32, error) {
 	p := newPartition(s.storagePath, s.nextPartitionID)
 	err := os.MkdirAll(p.partitionPath, os.ModePerm)
-	check(err)
+	if err != nil {
+		return -1, err
+	}
 	s.partitions[p.partitionID] = p
 	s.nextPartitionID++
-	return p.partitionID
+	return p.partitionID, nil
 }
 
 /*
 Write writes an entry to the default partition.
 */
-func (s *Storage) Write(gsn int64, record string) {
-	if len(s.partitions) == 0 {
-		panic(fmt.Sprintf("Attempted to write to storage with no partitions"))
+func (s *Storage) Write(gsn int64, record string) error {
+	err := s.writeToPartition(s.nextPartitionID-1, gsn, record)
+	if err != nil {
+		logger.Printf(err.Error())
+		return err
 	}
-	s.WriteToPartition(0, gsn, record)
+	return nil
+}
+
+func (s *Storage) Read(gsn int64) error {
+	// TODO
+	return nil
 }
 
 /*
-WriteToPartition writes an entry to partition with id [partitionID].
+writeToPartition writes an entry to partition with id [partitionID].
 */
-func (s *Storage) WriteToPartition(partitionID int32, gsn int64, record string) {
+func (s *Storage) writeToPartition(partitionID int32, gsn int64, record string) error {
 	p, in := s.partitions[partitionID]
 	if !in {
-		panic(fmt.Sprintf("Attempted to write to non-existant partition %d", partitionID))
+		return fmt.Errorf("Attempted to write to non-existant partition %d", partitionID)
 	}
-	p.checkActiveSegment()
+	err := p.checkActiveSegment()
+	if err != nil {
+		return err
+	}
 	p.activeSegment.writeToSegment(gsn, record)
+	return nil
 }
 
-func (p *partition) checkActiveSegment() {
+func (p *partition) checkActiveSegment() error {
 	if p.activeSegment == nil || p.activeSegment.nextRelativeOffset >= p.maxSegmentSize {
-		p.addActiveSegment()
+		return p.addActiveSegment()
 	}
+	return nil
 }
 
-func (p *partition) addActiveSegment() {
+func (p *partition) addActiveSegment() error {
 	if p.activeSegment != nil {
 		p.nextBaseOffset += int64(p.activeSegment.nextRelativeOffset)
 		p.activeSegment.log.Close()
 		p.activeSegment.index.Close()
 	}
-	activeSegment := newSegment(p.partitionPath, p.nextBaseOffset)
+	activeSegment, err := newSegment(p.partitionPath, p.nextBaseOffset)
+	if err != nil {
+		return err
+	}
 	p.segments[activeSegment.baseOffset] = activeSegment
 	p.activeSegment = activeSegment
+	return nil
 }
 
 func (s *segment) writeToSegment(gsn int64, record string) {
 	logEntry := newLogEntry(s.nextRelativeOffset, s.nextPosition, gsn, record)
-	s.logWriter.WriteString(logEntry.String())
+	s.logWriter.WriteString(logEntry.Stats())
 	s.logWriter.Flush()
 	indexEntry := newIndexEntry(s.nextRelativeOffset, s.nextPosition)
-	s.indexWriter.WriteString(indexEntry.String())
+	s.indexWriter.WriteString(indexEntry.Stats())
 	s.indexWriter.Flush()
 	s.nextRelativeOffset++
 	s.nextPosition += logEntry.payloadSize
@@ -178,9 +206,15 @@ func newPartition(storagePath string, partitionID int32) *partition {
 	return p
 }
 
-func newSegment(partitionPath string, baseOffset int64) *segment {
-	log, logWriter := newLog(partitionPath, baseOffset)
-	index, indexWriter := newIndex(partitionPath, baseOffset)
+func newSegment(partitionPath string, baseOffset int64) (*segment, error) {
+	log, logWriter, logErr := newLog(partitionPath, baseOffset)
+	if logErr != nil {
+		return nil, logErr
+	}
+	index, indexWriter, indexErr := newIndex(partitionPath, baseOffset)
+	if indexErr != nil {
+		return nil, indexErr
+	}
 	s := &segment{
 		baseOffset:         baseOffset,
 		nextRelativeOffset: 0,
@@ -190,27 +224,31 @@ func newSegment(partitionPath string, baseOffset int64) *segment {
 		logWriter:          logWriter,
 		indexWriter:        indexWriter,
 	}
-	return s
+	return s, nil
 }
 
-func newLog(partitionPath string, baseOffset int64) (*os.File, *bufio.Writer) {
+func newLog(partitionPath string, baseOffset int64) (*os.File, *bufio.Writer, error) {
 	logName := fmt.Sprintf("%d.log", baseOffset)
 	logPath := path.Join(partitionPath, logName)
 	f, err := os.Create(logPath)
-	check(err)
+	if err != nil {
+		return nil, nil, err
+	}
 	w := bufio.NewWriter(f)
 	w.WriteString(fmt.Sprintf("baseoffset: %d\n", baseOffset))
-	return f, w
+	return f, w, nil
 }
 
-func newIndex(partitionPath string, baseOffset int64) (*os.File, *bufio.Writer) {
+func newIndex(partitionPath string, baseOffset int64) (*os.File, *bufio.Writer, error) {
 	indexName := fmt.Sprintf("%d.index", baseOffset)
 	indexPath := path.Join(partitionPath, indexName)
 	f, err := os.Create(indexPath)
-	check(err)
+	if err != nil {
+		return nil, nil, err
+	}
 	w := bufio.NewWriter(f)
 	w.WriteString(fmt.Sprintf("baseoffset: %d\n", baseOffset))
-	return f, w
+	return f, w, nil
 }
 
 func newLogEntry(relativeOffset int32, position int32, gsn int64, record string) *logEntry {
@@ -238,21 +276,17 @@ func newPayload(gsn int64, record string) string {
 		Record: record,
 	}
 	out, err := json.Marshal(payload)
-	check(err)
+	if err != nil {
+		logger.Printf(err.Error())
+	}
 	return string(out)
 }
 
-func (l logEntry) String() string {
+func (l logEntry) Stats() string {
 	return fmt.Sprintf("relativeoffset: %d, position: %d, payloadsize: %d, payload: %s\n",
 		l.relativeOffset, l.position, l.payloadSize, l.payload)
 }
 
-func (i indexEntry) String() string {
+func (i indexEntry) Stats() string {
 	return fmt.Sprintf("relativeoffset: %d, position: %d\n", i.relativeOffset, i.position)
-}
-
-func check(e error) {
-	if e != nil {
-		panic(e)
-	}
 }
