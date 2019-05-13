@@ -6,7 +6,7 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/scalog/scalog/logger"
+	log "github.com/scalog/scalog/logger"
 )
 
 var filePrefix = "log"
@@ -30,7 +30,7 @@ func New(volumePath string) RecordStorage {
 	// Ensure volume path exists
 	err := os.MkdirAll(volumePath, os.ModePerm)
 	if err != nil {
-		logger.Panicf(err.Error())
+		log.Panicf(err.Error())
 	}
 
 	l := RecordStorage{volumePath, nil, nil, 1, 0}
