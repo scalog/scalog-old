@@ -102,7 +102,7 @@ func newDataServer() *dataServer {
 	disk, err := storage.NewStorage("storage")
 	if err != nil {
 		// TODO handle error
-		logger.Printf("Failed to initialize storage")
+		logger.Printf("Failed to initialize storage: " + err.Error())
 	}
 	s := &dataServer{
 		replicaID:        replicaID,
@@ -274,7 +274,11 @@ func (server *dataServer) receiveFinalizedCuts(stream om.Order_ReportClient, sen
 					for i := 0; i < numLogs; i++ {
 						server.mu.Lock()
 						server.serverBuffers[idx][int(offset)+i].gsn = cutGSN
-						server.disk.Write(int64(cutGSN), server.serverBuffers[idx][int(offset)+i].record)
+						err := server.disk.Write(int64(cutGSN), server.serverBuffers[idx][int(offset)+i].record)
+						if err != nil {
+							// TODO handle error
+							logger.Printf("Failed to write to storage: " + err.Error())
+						}
 						// If you were the one who received this client req, you should respond to it
 						if idx == int(server.replicaID) {
 							server.serverBuffers[idx][int(offset)+i].commitResp <- cutGSN
