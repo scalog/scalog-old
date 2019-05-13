@@ -2,10 +2,14 @@ package storage
 
 import (
 	"bufio"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"path"
+	"strconv"
+	"strings"
 
 	"github.com/scalog/scalog/logger"
 )
@@ -67,18 +71,9 @@ type segment struct {
 logEntry is a single entry in a segment's log file.
 */
 type logEntry struct {
-	relativeOffset int32
-	position       int32
-	payloadSize    int32
-	payload        string
-}
-
-/*
-indexEntry is a single entry in a segment's index file.
-*/
-type indexEntry struct {
-	relativeOffset int32
-	position       int32
+	RelativeOffset int32
+	Position       int32
+	Payload        payload
 }
 
 /*
@@ -88,6 +83,9 @@ type payload struct {
 	Gsn    int64
 	Record string
 }
+
+const logSuffix = ".log"
+const indexSuffix = ".index"
 
 /*
 NewStorage creates a new directory at [storagePath] and returns a new instance
@@ -137,9 +135,16 @@ func (s *Storage) Write(gsn int64, record string) error {
 	return nil
 }
 
-func (s *Storage) Read(gsn int64) error {
-	// TODO
-	return nil
+/*
+Read reads an entry from the default partition.
+*/
+func (s *Storage) Read(gsn int64) (string, error) {
+	record, err := s.readFromPartition(s.nextPartitionID-1, gsn)
+	if err != nil {
+		logger.Printf(err.Error())
+		return "", err
+	}
+	return record, nil
 }
 
 /*
@@ -181,20 +186,109 @@ func (p *partition) addActiveSegment(gsn int64) error {
 
 func (s *segment) writeToSegment(gsn int64, record string) error {
 	logEntry := newLogEntry(s.nextRelativeOffset, s.nextPosition, gsn, record)
-	_, writeLogErr := s.logWriter.WriteString(logEntry.Stats())
+	bytesWritten, writeLogErr := s.logWriter.WriteString(logEntry + "\n")
 	if writeLogErr != nil {
 		return writeLogErr
 	}
 	s.logWriter.Flush()
-	indexEntry := newIndexEntry(s.nextRelativeOffset, s.nextPosition)
-	_, writeIndexErr := s.indexWriter.WriteString(indexEntry.Stats())
-	if writeIndexErr != nil {
-		return writeIndexErr
+	buffer := make([]byte, 8)
+	binary.LittleEndian.PutUint32(buffer[0:], uint32(s.nextRelativeOffset))
+	binary.LittleEndian.PutUint32(buffer[4:], uint32(s.nextPosition))
+	for _, b := range buffer {
+		writeIndexErr := s.indexWriter.WriteByte(b)
+		if writeIndexErr != nil {
+			return writeIndexErr
+		}
 	}
 	s.indexWriter.Flush()
 	s.nextRelativeOffset++
-	s.nextPosition += logEntry.payloadSize
+	s.nextPosition += int32(bytesWritten)
 	return nil
+}
+
+func (s *Storage) readFromPartition(partitionID int32, gsn int64) (string, error) {
+	p, in := s.partitions[partitionID]
+	if !in {
+		return "", fmt.Errorf("Attempted to read from non-existant partition %d", partitionID)
+	}
+	segment, err := p.getSegmentContainingGSN(gsn)
+	if err != nil {
+		return "", err
+	}
+	return segment.readFromSegment(int32(gsn - segment.baseOffset))
+}
+
+func (p *partition) getSegmentContainingGSN(gsn int64) (*segment, error) {
+	// TODO simplify by using p.segments' keys
+	files, err := ioutil.ReadDir(p.partitionPath)
+	if err != nil {
+		return nil, err
+	}
+	for _, file := range files {
+		if strings.HasSuffix(file.Name(), indexSuffix) {
+			continue
+		}
+		indexName := strings.TrimSuffix(file.Name(), logSuffix)
+		baseOffset, err := strconv.ParseInt(indexName, 10, 64)
+		if err != nil {
+			return nil, err
+		}
+		if gsn >= baseOffset && gsn < baseOffset+int64(p.maxSegmentSize) {
+			return p.segments[baseOffset], nil
+		}
+	}
+	return nil, fmt.Errorf("Failed to find segment containing entry with gsn %d", gsn)
+}
+
+func (s *segment) readFromSegment(relativeOffset int32) (string, error) {
+	position, indexErr := getPositionOfRelativeOffset(s.index.Name(), relativeOffset)
+	if indexErr != nil {
+		return "", indexErr
+	}
+	record, logErr := getRecordOfEntryAtPosition(s.log.Name(), position)
+	if logErr != nil {
+		return "", logErr
+	}
+	return record, nil
+}
+
+func getPositionOfRelativeOffset(indexPath string, relativeOffset int32) (int32, error) {
+	buffer, err := ioutil.ReadFile(indexPath)
+	if err != nil {
+		return -1, err
+	}
+	left := 0
+	right := len(buffer) / 8
+	for left < right {
+		target := left + ((right - left) / 2)
+		targetOffset := int32(binary.LittleEndian.Uint32(buffer[target*8:]))
+		if relativeOffset == targetOffset {
+			return int32(binary.LittleEndian.Uint32(buffer[target*8+4:])), nil
+		}
+	}
+	return -1, fmt.Errorf("Failed to find entry with relative offset %d", relativeOffset)
+}
+
+func getRecordOfEntryAtPosition(logPath string, position int32) (string, error) {
+	log, osErr := os.Open(logPath)
+	if osErr != nil {
+		return "", osErr
+	}
+	logReader := bufio.NewReader(log)
+	_, discardErr := logReader.Discard(int(position))
+	if discardErr != nil {
+		return "", discardErr
+	}
+	line, _, readErr := logReader.ReadLine()
+	if readErr != nil {
+		return "", readErr
+	}
+	logEntry := logEntry{}
+	jsonErr := json.Unmarshal(line, &logEntry)
+	if jsonErr != nil {
+		return "", jsonErr
+	}
+	return logEntry.Payload.Record, nil
 }
 
 func newPartition(storagePath string, partitionID int32) *partition {
@@ -231,71 +325,52 @@ func newSegment(partitionPath string, baseOffset int64) (*segment, error) {
 }
 
 func newLog(partitionPath string, baseOffset int64) (*os.File, *bufio.Writer, error) {
-	logName := fmt.Sprintf("%019d.log", baseOffset)
+	logName := getLogName(baseOffset)
 	logPath := path.Join(partitionPath, logName)
 	f, fileErr := os.Create(logPath)
 	if fileErr != nil {
 		return nil, nil, fileErr
 	}
 	w := bufio.NewWriter(f)
-	_, writeErr := w.WriteString(fmt.Sprintf("baseoffset: %d\n", baseOffset))
-	if writeErr != nil {
-		return nil, nil, writeErr
-	}
 	return f, w, nil
 }
 
 func newIndex(partitionPath string, baseOffset int64) (*os.File, *bufio.Writer, error) {
-	indexName := fmt.Sprintf("%019d.index", baseOffset)
+	indexName := getIndexName(baseOffset)
 	indexPath := path.Join(partitionPath, indexName)
 	f, err := os.Create(indexPath)
 	if err != nil {
 		return nil, nil, err
 	}
 	w := bufio.NewWriter(f)
-	_, writeErr := w.WriteString(fmt.Sprintf("baseoffset: %d\n", baseOffset))
-	if writeErr != nil {
-		return nil, nil, writeErr
-	}
 	return f, w, nil
 }
 
-func newLogEntry(relativeOffset int32, position int32, gsn int64, record string) *logEntry {
-	payload := newPayload(gsn, record)
+func newLogEntry(relativeOffset int32, position int32, gsn int64, record string) string {
 	l := &logEntry{
-		relativeOffset: relativeOffset,
-		position:       position,
-		payloadSize:    int32(len(payload)),
-		payload:        payload,
+		RelativeOffset: relativeOffset,
+		Position:       position,
+		Payload:        newPayload(gsn, record),
 	}
-	return l
-}
-
-func newIndexEntry(relativeOffset int32, position int32) *indexEntry {
-	i := &indexEntry{
-		relativeOffset: relativeOffset,
-		position:       position,
-	}
-	return i
-}
-
-func newPayload(gsn int64, record string) string {
-	payload := &payload{
-		Gsn:    gsn,
-		Record: record,
-	}
-	out, err := json.Marshal(payload)
+	out, err := json.Marshal(l)
 	if err != nil {
 		logger.Printf(err.Error())
 	}
 	return string(out)
 }
 
-func (l logEntry) Stats() string {
-	return fmt.Sprintf("relativeoffset: %d, position: %d, payloadsize: %d, payload: %s\n",
-		l.relativeOffset, l.position, l.payloadSize, l.payload)
+func newPayload(gsn int64, record string) payload {
+	p := payload{
+		Gsn:    gsn,
+		Record: record,
+	}
+	return p
 }
 
-func (i indexEntry) Stats() string {
-	return fmt.Sprintf("relativeoffset: %d, position: %d\n", i.relativeOffset, i.position)
+func getLogName(baseOffset int64) string {
+	return fmt.Sprintf("%019d%s", baseOffset, logSuffix)
+}
+
+func getIndexName(baseOffset int64) string {
+	return fmt.Sprintf("%019d%s", baseOffset, indexSuffix)
 }
