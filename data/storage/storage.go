@@ -36,8 +36,6 @@ type partition struct {
 	partitionID int32
 	// max number of entries for a single segment
 	maxSegmentSize int32
-	// base offset to be assigned to next segment
-	nextBaseOffset int64
 	// segment that will be written to
 	activeSegment *segment
 	// baseOffset to segment
@@ -152,27 +150,27 @@ func (s *Storage) writeToPartition(partitionID int32, gsn int64, record string) 
 	if !in {
 		return fmt.Errorf("Attempted to write to non-existant partition %d", partitionID)
 	}
-	err := p.checkActiveSegment()
+	err := p.checkActiveSegment(gsn)
 	if err != nil {
 		return err
 	}
 	return p.activeSegment.writeToSegment(gsn, record)
 }
 
-func (p *partition) checkActiveSegment() error {
-	if p.activeSegment == nil || p.activeSegment.nextRelativeOffset >= p.maxSegmentSize {
-		return p.addActiveSegment()
+func (p *partition) checkActiveSegment(gsn int64) error {
+	if p.activeSegment == nil || p.activeSegment.nextRelativeOffset >= p.maxSegmentSize ||
+		gsn > p.activeSegment.baseOffset+int64(p.maxSegmentSize) {
+		return p.addActiveSegment(gsn)
 	}
 	return nil
 }
 
-func (p *partition) addActiveSegment() error {
+func (p *partition) addActiveSegment(gsn int64) error {
 	if p.activeSegment != nil {
-		p.nextBaseOffset += int64(p.activeSegment.nextRelativeOffset)
 		p.activeSegment.log.Close()
 		p.activeSegment.index.Close()
 	}
-	activeSegment, err := newSegment(p.partitionPath, p.nextBaseOffset)
+	activeSegment, err := newSegment(p.partitionPath, gsn)
 	if err != nil {
 		return err
 	}
@@ -205,7 +203,6 @@ func newPartition(storagePath string, partitionID int32) *partition {
 		partitionPath:  partitionPath,
 		partitionID:    partitionID,
 		maxSegmentSize: 1024,
-		nextBaseOffset: 0,
 		activeSegment:  nil,
 		segments:       make(map[int64]*segment),
 	}
@@ -234,7 +231,7 @@ func newSegment(partitionPath string, baseOffset int64) (*segment, error) {
 }
 
 func newLog(partitionPath string, baseOffset int64) (*os.File, *bufio.Writer, error) {
-	logName := fmt.Sprintf("%d.log", baseOffset)
+	logName := fmt.Sprintf("%019d.log", baseOffset)
 	logPath := path.Join(partitionPath, logName)
 	f, fileErr := os.Create(logPath)
 	if fileErr != nil {
@@ -249,7 +246,7 @@ func newLog(partitionPath string, baseOffset int64) (*os.File, *bufio.Writer, er
 }
 
 func newIndex(partitionPath string, baseOffset int64) (*os.File, *bufio.Writer, error) {
-	indexName := fmt.Sprintf("%d.index", baseOffset)
+	indexName := fmt.Sprintf("%019d.index", baseOffset)
 	indexPath := path.Join(partitionPath, indexName)
 	f, err := os.Create(indexPath)
 	if err != nil {
