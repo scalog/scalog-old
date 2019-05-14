@@ -3,7 +3,6 @@ package storage
 import (
 	"bufio"
 	"encoding/binary"
-	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -63,23 +62,6 @@ type segment struct {
 	logWriter *bufio.Writer
 	// writer for index file
 	indexWriter *bufio.Writer
-}
-
-/*
-logEntry is a single entry in a segment's log file.
-*/
-type logEntry struct {
-	RelativeOffset int32
-	Position       int32
-	Payload        payload
-}
-
-/*
-payload is the payload of a logEntry.
-*/
-type payload struct {
-	Gsn    int64
-	Record string
 }
 
 const logSuffix = ".log"
@@ -182,8 +164,7 @@ func (p *partition) addActiveSegment(gsn int64) error {
 }
 
 func (s *segment) writeToSegment(gsn int64, record string) error {
-	logEntry := newLogEntry(s.nextRelativeOffset, s.nextPosition, gsn, record)
-	bytesWritten, writeLogErr := s.logWriter.WriteString(logEntry + "\n")
+	bytesWritten, writeLogErr := s.logWriter.WriteString(record + "\n")
 	if writeLogErr != nil {
 		return writeLogErr
 	}
@@ -229,7 +210,7 @@ func (s *segment) readFromSegment(relativeOffset int32) (string, error) {
 	if indexErr != nil {
 		return "", indexErr
 	}
-	record, logErr := getRecordOfEntryAtPosition(s.log.Name(), position)
+	record, logErr := getRecordAtPosition(s.log.Name(), position)
 	if logErr != nil {
 		return "", logErr
 	}
@@ -257,7 +238,7 @@ func getPositionOfRelativeOffset(indexPath string, relativeOffset int32) (int32,
 	return -1, fmt.Errorf("Failed to find entry with relative offset %d", relativeOffset)
 }
 
-func getRecordOfEntryAtPosition(logPath string, position int32) (string, error) {
+func getRecordAtPosition(logPath string, position int32) (string, error) {
 	log, osErr := os.Open(logPath)
 	if osErr != nil {
 		return "", osErr
@@ -271,12 +252,8 @@ func getRecordOfEntryAtPosition(logPath string, position int32) (string, error) 
 	if readErr != nil {
 		return "", readErr
 	}
-	logEntry := logEntry{}
-	jsonErr := json.Unmarshal(line, &logEntry)
-	if jsonErr != nil {
-		return "", jsonErr
-	}
-	return logEntry.Payload.Record, nil
+	record := string(line)
+	return record, nil
 }
 
 func newPartition(storagePath string, partitionID int32) *partition {
@@ -332,27 +309,6 @@ func newIndex(partitionPath string, baseOffset int64) (*os.File, *bufio.Writer, 
 	}
 	w := bufio.NewWriter(f)
 	return f, w, nil
-}
-
-func newLogEntry(relativeOffset int32, position int32, gsn int64, record string) string {
-	l := &logEntry{
-		RelativeOffset: relativeOffset,
-		Position:       position,
-		Payload:        newPayload(gsn, record),
-	}
-	out, err := json.Marshal(l)
-	if err != nil {
-		logger.Printf(err.Error())
-	}
-	return string(out)
-}
-
-func newPayload(gsn int64, record string) payload {
-	p := payload{
-		Gsn:    gsn,
-		Record: record,
-	}
-	return p
 }
 
 func getLogName(baseOffset int64) string {
