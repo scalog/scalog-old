@@ -20,6 +20,8 @@ storage system.
 type Storage struct {
 	// path to storage directory
 	storagePath string
+	// next local sequence number to be assigned to record
+	nextLSN int64
 	// ID to be assigned to next partition added
 	nextPartitionID int32
 	// partitionID to partition
@@ -88,6 +90,7 @@ func NewStorage(storagePath string) (*Storage, error) {
 	}
 	s := &Storage{
 		storagePath:     storagePath,
+		nextLSN:         0,
 		nextPartitionID: 0,
 		partitions:      make(map[int32]*partition),
 	}
@@ -100,22 +103,31 @@ func NewStorage(storagePath string) (*Storage, error) {
 }
 
 /*
-Write writes an entry to the default partition.
+Write writes an entry to the default partition and returns the local sequence number.
 */
-func (s *Storage) Write(gsn int64, record string) error {
-	err := s.writeToPartition(s.nextPartitionID-1, gsn, record)
+func (s *Storage) Write(record string) (int64, error) {
+	lsn := s.nextLSN
+	err := s.writeToPartition(s.nextPartitionID-1, lsn, record)
 	if err != nil {
 		logger.Printf(err.Error())
-		return err
+		return -1, err
 	}
+	s.nextLSN++
+	return lsn, err
+}
+
+/*
+Commit TODO
+*/
+func (s *Storage) Commit(lsn int64, gsn int64) error {
 	return nil
 }
 
 /*
 Read reads an entry from the default partition.
 */
-func (s *Storage) Read(gsn int64) (string, error) {
-	record, err := s.readFromPartition(s.nextPartitionID-1, gsn)
+func (s *Storage) Read(lsn int64) (string, error) {
+	record, err := s.readFromPartition(s.nextPartitionID-1, lsn)
 	if err != nil {
 		logger.Printf(err.Error())
 		return "", err
@@ -154,26 +166,26 @@ func (s *Storage) addPartition() (int32, error) {
 /*
 writeToPartition writes an entry to partition with id [partitionID].
 */
-func (s *Storage) writeToPartition(partitionID int32, gsn int64, record string) error {
+func (s *Storage) writeToPartition(partitionID int32, lsn int64, record string) error {
 	p, in := s.partitions[partitionID]
 	if !in {
 		return fmt.Errorf("Attempted to write to non-existant partition %d", partitionID)
 	}
-	return p.writeToActiveSegment(gsn, record)
+	return p.writeToActiveSegment(lsn, record)
 }
 
-func (p *partition) writeToActiveSegment(gsn int64, record string) error {
+func (p *partition) writeToActiveSegment(lsn int64, record string) error {
 	if p.activeSegment == nil || p.activeSegment.nextRelativeOffset >= p.maxSegmentSize ||
-		gsn > p.activeSegment.baseOffset+int64(p.maxSegmentSize) {
-		err := p.addActiveSegment(gsn)
+		lsn > p.activeSegment.baseOffset+int64(p.maxSegmentSize) {
+		err := p.addActiveSegment(lsn)
 		if err != nil {
 			return err
 		}
 	}
-	return p.activeSegment.writeToSegment(gsn, record)
+	return p.activeSegment.writeToSegment(lsn, record)
 }
 
-func (p *partition) addActiveSegment(gsn int64) error {
+func (p *partition) addActiveSegment(lsn int64) error {
 	if p.activeSegment != nil {
 		syncErr := p.activeSegment.syncSegment()
 		if syncErr != nil {
@@ -188,7 +200,7 @@ func (p *partition) addActiveSegment(gsn int64) error {
 			return closeIndexErr
 		}
 	}
-	activeSegment, err := newSegment(p.partitionPath, gsn)
+	activeSegment, err := newSegment(p.partitionPath, lsn)
 	if err != nil {
 		return err
 	}
@@ -197,7 +209,7 @@ func (p *partition) addActiveSegment(gsn int64) error {
 	return nil
 }
 
-func (s *segment) writeToSegment(gsn int64, record string) error {
+func (s *segment) writeToSegment(lsn int64, record string) error {
 	logEntry := newLogEntry(record)
 	bytesWritten, writeLogErr := s.logWriter.WriteString(logEntry + "\n")
 	if writeLogErr != nil {
@@ -217,25 +229,25 @@ func (s *segment) writeToSegment(gsn int64, record string) error {
 	return nil
 }
 
-func (s *Storage) readFromPartition(partitionID int32, gsn int64) (string, error) {
+func (s *Storage) readFromPartition(partitionID int32, lsn int64) (string, error) {
 	p, in := s.partitions[partitionID]
 	if !in {
 		return "", fmt.Errorf("Attempted to read from non-existant partition %d", partitionID)
 	}
-	segment, err := p.getSegmentContainingGSN(gsn)
+	segment, err := p.getSegmentContainingLSN(lsn)
 	if err != nil {
 		return "", err
 	}
-	return segment.readFromSegment(int32(gsn - segment.baseOffset))
+	return segment.readFromSegment(int32(lsn - segment.baseOffset))
 }
 
-func (p *partition) getSegmentContainingGSN(gsn int64) (*segment, error) {
+func (p *partition) getSegmentContainingLSN(lsn int64) (*segment, error) {
 	for baseOffset := range p.segments {
-		if gsn >= baseOffset && gsn < baseOffset+int64(p.maxSegmentSize) {
+		if lsn >= baseOffset && lsn < baseOffset+int64(p.maxSegmentSize) {
 			return p.segments[baseOffset], nil
 		}
 	}
-	return nil, fmt.Errorf("Failed to find segment containing entry with gsn %d", gsn)
+	return nil, fmt.Errorf("Failed to find segment containing entry with lsn %d", lsn)
 }
 
 func (s *segment) readFromSegment(relativeOffset int32) (string, error) {

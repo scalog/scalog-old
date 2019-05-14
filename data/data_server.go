@@ -28,6 +28,7 @@ import (
 type Record struct {
 	cid        int32
 	csn        int32
+	lsn        int64
 	gsn        int32
 	record     string
 	commitResp chan int32 // Should send back a GSN to be forwarded to client
@@ -99,7 +100,7 @@ func newDataServer() *dataServer {
 		}
 	}
 
-	disk, err := storage.NewStorage("storage")
+	disk, err := storage.NewStorage("disk")
 	if err != nil {
 		// TODO handle error
 		logger.Printf("Failed to initialize storage: " + err.Error())
@@ -273,12 +274,12 @@ func (server *dataServer) receiveFinalizedCuts(stream om.Order_ReportClient, sen
 					numLogs := int(r - offset)
 					for i := 0; i < numLogs; i++ {
 						server.mu.Lock()
-						server.serverBuffers[idx][int(offset)+i].gsn = cutGSN
-						err := server.disk.Write(int64(cutGSN), server.serverBuffers[idx][int(offset)+i].record)
+						err := server.disk.Commit(server.serverBuffers[idx][int(offset)+i].lsn, int64(cutGSN))
 						if err != nil {
 							// TODO handle error
-							logger.Printf("Failed to write to storage: " + err.Error())
+							logger.Printf(err.Error())
 						}
+						server.serverBuffers[idx][int(offset)+i].gsn = cutGSN
 						// If you were the one who received this client req, you should respond to it
 						if idx == int(server.replicaID) {
 							server.serverBuffers[idx][int(offset)+i].commitResp <- cutGSN

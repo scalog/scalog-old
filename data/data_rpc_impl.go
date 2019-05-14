@@ -17,9 +17,14 @@ func (server *dataServer) Append(c context.Context, req *pb.AppendRequest) (*pb.
 		return nil, errors.New("this shard has been finalized. No further appends will be permitted")
 	}
 
+	lsn, err := server.disk.Write(req.Record)
+	if err != nil {
+		return nil, err
+	}
 	r := &Record{
 		cid:        req.Cid,
 		csn:        req.Csn,
+		lsn:        lsn,
 		record:     req.Record,
 		commitResp: make(chan int32),
 	}
