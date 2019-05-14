@@ -24,6 +24,10 @@ func TestSingleReadAndWrite(t *testing.T) {
 	if writeErr != nil {
 		t.Fatalf(writeErr.Error())
 	}
+	syncErr := disk.Sync()
+	if syncErr != nil {
+		t.Fatalf(syncErr.Error())
+	}
 	actual, readErr := disk.Read(0)
 	if readErr != nil {
 		t.Fatalf(readErr.Error())
@@ -47,6 +51,10 @@ func TestMultipleReadAndWrite(t *testing.T) {
 	writeErr1 := disk.Write(1, expected1)
 	if writeErr1 != nil {
 		t.Fatalf(writeErr1.Error())
+	}
+	syncErr := disk.Sync()
+	if syncErr != nil {
+		t.Fatalf(syncErr.Error())
 	}
 	actual0, readErr0 := disk.Read(0)
 	if readErr0 != nil {
@@ -75,6 +83,13 @@ func TestStress(t *testing.T) {
 		if writeErr != nil {
 			t.Fatalf(writeErr.Error())
 		}
+	}
+	syncErr := disk.Sync()
+	if syncErr != nil {
+		t.Fatalf(syncErr.Error())
+	}
+	for i := int64(0); i < 10240; i++ {
+		expected := fmt.Sprintf("Record %d", i)
 		actual, readErr := disk.Read(i)
 		if readErr != nil {
 			t.Fatalf(readErr.Error())

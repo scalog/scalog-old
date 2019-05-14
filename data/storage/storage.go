@@ -54,6 +54,8 @@ type segment struct {
 	nextRelativeOffset int32
 	// position to be assigned to next entry
 	nextPosition int32
+	// true if the segment has been modified since the last call to Sync
+	dirty bool
 	// log file
 	log *os.File
 	// index file
@@ -78,29 +80,16 @@ func NewStorage(storagePath string) (*Storage, error) {
 		return nil, storageErr
 	}
 	s := &Storage{
-		storagePath: storagePath,
-		partitions:  make(map[int32]*partition),
+		storagePath:     storagePath,
+		nextPartitionID: 0,
+		partitions:      make(map[int32]*partition),
 	}
-	_, partitionErr := s.AddPartition()
+	_, partitionErr := s.addPartition()
 	if partitionErr != nil {
 		logger.Printf(partitionErr.Error())
 		return nil, partitionErr
 	}
 	return s, nil
-}
-
-/*
-AddPartition adds a new partition to storage and returns the partition's id.
-*/
-func (s *Storage) AddPartition() (int32, error) {
-	p := newPartition(s.storagePath, s.nextPartitionID)
-	err := os.MkdirAll(p.partitionPath, os.ModePerm)
-	if err != nil {
-		return -1, err
-	}
-	s.partitions[p.partitionID] = p
-	s.nextPartitionID++
-	return p.partitionID, nil
 }
 
 /*
@@ -128,6 +117,58 @@ func (s *Storage) Read(gsn int64) (string, error) {
 }
 
 /*
+Sync commits the storage's in-memory copy of recently written files to disk.
+*/
+func (s *Storage) Sync() error {
+	for _, p := range s.partitions {
+		for _, seg := range p.segments {
+			if seg.dirty {
+				flushLogErr := seg.logWriter.Flush()
+				if flushLogErr != nil {
+					logger.Printf(flushLogErr.Error())
+					return flushLogErr
+				}
+				syncLogErr := seg.log.Sync()
+				if syncLogErr != nil {
+					logger.Printf(syncLogErr.Error())
+					return syncLogErr
+				}
+				flushIndexErr := seg.indexWriter.Flush()
+				if flushIndexErr != nil {
+					logger.Printf(flushIndexErr.Error())
+					return flushIndexErr
+				}
+				syncIndexErr := seg.index.Sync()
+				if syncIndexErr != nil {
+					logger.Printf(syncIndexErr.Error())
+					return syncIndexErr
+				}
+				if seg != p.activeSegment {
+					seg.log.Close()
+					seg.index.Close()
+				}
+				seg.dirty = false
+			}
+		}
+	}
+	return nil
+}
+
+/*
+addPartition adds a new partition to storage and returns the partition's id.
+*/
+func (s *Storage) addPartition() (int32, error) {
+	p := newPartition(s.storagePath, s.nextPartitionID)
+	err := os.MkdirAll(p.partitionPath, os.ModePerm)
+	if err != nil {
+		return -1, err
+	}
+	s.partitions[p.partitionID] = p
+	s.nextPartitionID++
+	return p.partitionID, nil
+}
+
+/*
 writeToPartition writes an entry to partition with id [partitionID].
 */
 func (s *Storage) writeToPartition(partitionID int32, gsn int64, record string) error {
@@ -150,10 +191,6 @@ func (p *partition) writeToActiveSegment(gsn int64, record string) error {
 }
 
 func (p *partition) addActiveSegment(gsn int64) error {
-	if p.activeSegment != nil {
-		p.activeSegment.log.Close()
-		p.activeSegment.index.Close()
-	}
 	activeSegment, err := newSegment(p.partitionPath, gsn)
 	if err != nil {
 		return err
@@ -164,11 +201,11 @@ func (p *partition) addActiveSegment(gsn int64) error {
 }
 
 func (s *segment) writeToSegment(gsn int64, record string) error {
+	s.dirty = true
 	bytesWritten, writeLogErr := s.logWriter.WriteString(record + "\n")
 	if writeLogErr != nil {
 		return writeLogErr
 	}
-	s.logWriter.Flush()
 	buffer := make([]byte, 8)
 	binary.LittleEndian.PutUint32(buffer[0:], uint32(s.nextRelativeOffset))
 	binary.LittleEndian.PutUint32(buffer[4:], uint32(s.nextPosition))
@@ -178,7 +215,6 @@ func (s *segment) writeToSegment(gsn int64, record string) error {
 			return writeIndexErr
 		}
 	}
-	s.indexWriter.Flush()
 	s.nextRelativeOffset++
 	s.nextPosition += int32(bytesWritten)
 	return nil
@@ -281,6 +317,7 @@ func newSegment(partitionPath string, baseOffset int64) (*segment, error) {
 		baseOffset:         baseOffset,
 		nextRelativeOffset: 0,
 		nextPosition:       0,
+		dirty:              false,
 		log:                log,
 		index:              index,
 		logWriter:          logWriter,
