@@ -59,12 +59,12 @@ type segment struct {
 	nextPosition int32
 	// log file
 	log *os.File
-	// index file
-	index *os.File
+	// local index file
+	localIndex *os.File
 	// writer for log file
 	logWriter *bufio.Writer
-	// writer for index file
-	indexWriter *bufio.Writer
+	// writer for local index file
+	localIndexWriter *bufio.Writer
 }
 
 /*
@@ -76,7 +76,8 @@ type logEntry struct {
 }
 
 const logSuffix = ".log"
-const indexSuffix = ".index"
+const localIndexSuffix = ".local"
+const globalIndexSuffix = ".global"
 
 /*
 NewStorage creates a new directory at [storagePath] and returns a new instance
@@ -117,13 +118,6 @@ func (s *Storage) Write(record string) (int64, error) {
 }
 
 /*
-Commit TODO
-*/
-func (s *Storage) Commit(lsn int64, gsn int64) error {
-	return nil
-}
-
-/*
 Read reads an entry from the default partition.
 */
 func (s *Storage) Read(lsn int64) (string, error) {
@@ -133,6 +127,13 @@ func (s *Storage) Read(lsn int64) (string, error) {
 		return "", err
 	}
 	return record, nil
+}
+
+/*
+Commit TODO
+*/
+func (s *Storage) Commit(lsn int64, gsn int64) error {
+	return nil
 }
 
 /*
@@ -195,7 +196,7 @@ func (p *partition) addActiveSegment(lsn int64) error {
 		if closeLogErr != nil {
 			return closeLogErr
 		}
-		closeIndexErr := p.activeSegment.index.Close()
+		closeIndexErr := p.activeSegment.localIndex.Close()
 		if closeIndexErr != nil {
 			return closeIndexErr
 		}
@@ -219,7 +220,7 @@ func (s *segment) writeToSegment(lsn int64, record string) error {
 	binary.LittleEndian.PutUint32(buffer[0:], uint32(s.nextRelativeOffset))
 	binary.LittleEndian.PutUint32(buffer[4:], uint32(s.nextPosition))
 	for _, b := range buffer {
-		writeIndexErr := s.indexWriter.WriteByte(b)
+		writeIndexErr := s.localIndexWriter.WriteByte(b)
 		if writeIndexErr != nil {
 			return writeIndexErr
 		}
@@ -251,7 +252,7 @@ func (p *partition) getSegmentContainingLSN(lsn int64) (*segment, error) {
 }
 
 func (s *segment) readFromSegment(relativeOffset int32) (string, error) {
-	position, indexErr := getPositionOfRelativeOffset(s.index.Name(), relativeOffset)
+	position, indexErr := getPositionOfRelativeOffset(s.localIndex.Name(), relativeOffset)
 	if indexErr != nil {
 		return "", indexErr
 	}
@@ -316,12 +317,12 @@ func (s *segment) syncSegment() error {
 		logger.Printf(syncLogErr.Error())
 		return syncLogErr
 	}
-	flushIndexErr := s.indexWriter.Flush()
+	flushIndexErr := s.localIndexWriter.Flush()
 	if flushIndexErr != nil {
 		logger.Printf(flushIndexErr.Error())
 		return flushIndexErr
 	}
-	syncIndexErr := s.index.Sync()
+	syncIndexErr := s.localIndex.Sync()
 	if syncIndexErr != nil {
 		logger.Printf(syncIndexErr.Error())
 		return syncIndexErr
@@ -346,7 +347,7 @@ func newSegment(partitionPath string, baseOffset int64) (*segment, error) {
 	if logErr != nil {
 		return nil, logErr
 	}
-	index, indexWriter, indexErr := newIndex(partitionPath, baseOffset)
+	index, indexWriter, indexErr := newLocalIndex(partitionPath, baseOffset)
 	if indexErr != nil {
 		return nil, indexErr
 	}
@@ -355,9 +356,9 @@ func newSegment(partitionPath string, baseOffset int64) (*segment, error) {
 		nextRelativeOffset: 0,
 		nextPosition:       0,
 		log:                log,
-		index:              index,
+		localIndex:         index,
 		logWriter:          logWriter,
-		indexWriter:        indexWriter,
+		localIndexWriter:   indexWriter,
 	}
 	return s, nil
 }
@@ -373,8 +374,8 @@ func newLog(partitionPath string, baseOffset int64) (*os.File, *bufio.Writer, er
 	return f, w, nil
 }
 
-func newIndex(partitionPath string, baseOffset int64) (*os.File, *bufio.Writer, error) {
-	indexName := getIndexName(baseOffset)
+func newLocalIndex(partitionPath string, baseOffset int64) (*os.File, *bufio.Writer, error) {
+	indexName := getLocalIndexName(baseOffset)
 	indexPath := path.Join(partitionPath, indexName)
 	f, err := os.Create(indexPath)
 	if err != nil {
@@ -400,6 +401,6 @@ func getLogName(baseOffset int64) string {
 	return fmt.Sprintf("%019d%s", baseOffset, logSuffix)
 }
 
-func getIndexName(baseOffset int64) string {
-	return fmt.Sprintf("%019d%s", baseOffset, indexSuffix)
+func getLocalIndexName(baseOffset int64) string {
+	return fmt.Sprintf("%019d%s", baseOffset, localIndexSuffix)
 }
