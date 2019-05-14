@@ -54,8 +54,6 @@ type segment struct {
 	nextRelativeOffset int32
 	// position to be assigned to next entry
 	nextPosition int32
-	// true if the segment has been modified since the last call to Sync
-	dirty bool
 	// log file
 	log *os.File
 	// index file
@@ -121,34 +119,25 @@ Sync commits the storage's in-memory copy of recently written files to disk.
 */
 func (s *Storage) Sync() error {
 	for _, p := range s.partitions {
-		for _, seg := range p.segments {
-			if seg.dirty {
-				flushLogErr := seg.logWriter.Flush()
-				if flushLogErr != nil {
-					logger.Printf(flushLogErr.Error())
-					return flushLogErr
-				}
-				syncLogErr := seg.log.Sync()
-				if syncLogErr != nil {
-					logger.Printf(syncLogErr.Error())
-					return syncLogErr
-				}
-				flushIndexErr := seg.indexWriter.Flush()
-				if flushIndexErr != nil {
-					logger.Printf(flushIndexErr.Error())
-					return flushIndexErr
-				}
-				syncIndexErr := seg.index.Sync()
-				if syncIndexErr != nil {
-					logger.Printf(syncIndexErr.Error())
-					return syncIndexErr
-				}
-				if seg != p.activeSegment {
-					seg.log.Close()
-					seg.index.Close()
-				}
-				seg.dirty = false
-			}
+		flushLogErr := p.activeSegment.logWriter.Flush()
+		if flushLogErr != nil {
+			logger.Printf(flushLogErr.Error())
+			return flushLogErr
+		}
+		syncLogErr := p.activeSegment.log.Sync()
+		if syncLogErr != nil {
+			logger.Printf(syncLogErr.Error())
+			return syncLogErr
+		}
+		flushIndexErr := p.activeSegment.indexWriter.Flush()
+		if flushIndexErr != nil {
+			logger.Printf(flushIndexErr.Error())
+			return flushIndexErr
+		}
+		syncIndexErr := p.activeSegment.index.Sync()
+		if syncIndexErr != nil {
+			logger.Printf(syncIndexErr.Error())
+			return syncIndexErr
 		}
 	}
 	return nil
@@ -191,6 +180,14 @@ func (p *partition) writeToActiveSegment(gsn int64, record string) error {
 }
 
 func (p *partition) addActiveSegment(gsn int64) error {
+	if p.activeSegment != nil {
+		p.activeSegment.logWriter.Flush()
+		p.activeSegment.log.Sync()
+		p.activeSegment.log.Close()
+		p.activeSegment.indexWriter.Flush()
+		p.activeSegment.index.Sync()
+		p.activeSegment.index.Close()
+	}
 	activeSegment, err := newSegment(p.partitionPath, gsn)
 	if err != nil {
 		return err
@@ -201,7 +198,6 @@ func (p *partition) addActiveSegment(gsn int64) error {
 }
 
 func (s *segment) writeToSegment(gsn int64, record string) error {
-	s.dirty = true
 	bytesWritten, writeLogErr := s.logWriter.WriteString(record + "\n")
 	if writeLogErr != nil {
 		return writeLogErr
@@ -317,7 +313,6 @@ func newSegment(partitionPath string, baseOffset int64) (*segment, error) {
 		baseOffset:         baseOffset,
 		nextRelativeOffset: 0,
 		nextPosition:       0,
-		dirty:              false,
 		log:                log,
 		index:              index,
 		logWriter:          logWriter,
