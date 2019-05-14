@@ -119,26 +119,7 @@ Sync commits the storage's in-memory copy of recently written files to disk.
 */
 func (s *Storage) Sync() error {
 	for _, p := range s.partitions {
-		flushLogErr := p.activeSegment.logWriter.Flush()
-		if flushLogErr != nil {
-			logger.Printf(flushLogErr.Error())
-			return flushLogErr
-		}
-		syncLogErr := p.activeSegment.log.Sync()
-		if syncLogErr != nil {
-			logger.Printf(syncLogErr.Error())
-			return syncLogErr
-		}
-		flushIndexErr := p.activeSegment.indexWriter.Flush()
-		if flushIndexErr != nil {
-			logger.Printf(flushIndexErr.Error())
-			return flushIndexErr
-		}
-		syncIndexErr := p.activeSegment.index.Sync()
-		if syncIndexErr != nil {
-			logger.Printf(syncIndexErr.Error())
-			return syncIndexErr
-		}
+		p.activeSegment.syncSegment()
 	}
 	return nil
 }
@@ -181,12 +162,18 @@ func (p *partition) writeToActiveSegment(gsn int64, record string) error {
 
 func (p *partition) addActiveSegment(gsn int64) error {
 	if p.activeSegment != nil {
-		p.activeSegment.logWriter.Flush()
-		p.activeSegment.log.Sync()
-		p.activeSegment.log.Close()
-		p.activeSegment.indexWriter.Flush()
-		p.activeSegment.index.Sync()
-		p.activeSegment.index.Close()
+		syncErr := p.activeSegment.syncSegment()
+		if syncErr != nil {
+			return syncErr
+		}
+		closeLogErr := p.activeSegment.log.Close()
+		if closeLogErr != nil {
+			return closeLogErr
+		}
+		closeIndexErr := p.activeSegment.index.Close()
+		if closeIndexErr != nil {
+			return closeIndexErr
+		}
 	}
 	activeSegment, err := newSegment(p.partitionPath, gsn)
 	if err != nil {
@@ -286,6 +273,30 @@ func getRecordAtPosition(logPath string, position int32) (string, error) {
 	}
 	record := string(line)
 	return record, nil
+}
+
+func (s *segment) syncSegment() error {
+	flushLogErr := s.logWriter.Flush()
+	if flushLogErr != nil {
+		logger.Printf(flushLogErr.Error())
+		return flushLogErr
+	}
+	syncLogErr := s.log.Sync()
+	if syncLogErr != nil {
+		logger.Printf(syncLogErr.Error())
+		return syncLogErr
+	}
+	flushIndexErr := s.indexWriter.Flush()
+	if flushIndexErr != nil {
+		logger.Printf(flushIndexErr.Error())
+		return flushIndexErr
+	}
+	syncIndexErr := s.index.Sync()
+	if syncIndexErr != nil {
+		logger.Printf(syncIndexErr.Error())
+		return syncIndexErr
+	}
+	return nil
 }
 
 func newPartition(storagePath string, partitionID int32) *partition {
