@@ -3,6 +3,7 @@ package storage
 import (
 	"bufio"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -62,6 +63,14 @@ type segment struct {
 	logWriter *bufio.Writer
 	// writer for index file
 	indexWriter *bufio.Writer
+}
+
+/*
+logEntry is a single entry in a segment's log file.
+*/
+type logEntry struct {
+	Length int32
+	Record string
 }
 
 const logSuffix = ".log"
@@ -189,7 +198,8 @@ func (p *partition) addActiveSegment(gsn int64) error {
 }
 
 func (s *segment) writeToSegment(gsn int64, record string) error {
-	bytesWritten, writeLogErr := s.logWriter.WriteString(record + "\n")
+	logEntry := newLogEntry(record)
+	bytesWritten, writeLogErr := s.logWriter.WriteString(logEntry + "\n")
 	if writeLogErr != nil {
 		return writeLogErr
 	}
@@ -275,8 +285,12 @@ func getRecordAtPosition(logPath string, position int32) (string, error) {
 	if readErr != nil {
 		return "", readErr
 	}
-	record := string(line)
-	return record, nil
+	logEntry := logEntry{}
+	jsonErr := json.Unmarshal(line, &logEntry)
+	if jsonErr != nil {
+		return "", jsonErr
+	}
+	return logEntry.Record, nil
 }
 
 func (s *segment) syncSegment() error {
@@ -356,6 +370,18 @@ func newIndex(partitionPath string, baseOffset int64) (*os.File, *bufio.Writer, 
 	}
 	w := bufio.NewWriter(f)
 	return f, w, nil
+}
+
+func newLogEntry(record string) string {
+	l := &logEntry{
+		Length: int32(len(record)),
+		Record: record,
+	}
+	out, err := json.Marshal(l)
+	if err != nil {
+		logger.Printf(err.Error())
+	}
+	return string(out)
 }
 
 func getLogName(baseOffset int64) string {
