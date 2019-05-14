@@ -63,3 +63,24 @@ func TestMultipleReadAndWrite(t *testing.T) {
 		t.Fatalf(fmt.Sprintf("Expected: \"%s\", Actual: %s", expected1, actual1))
 	}
 }
+
+func TestStress(t *testing.T) {
+	disk, err := storage.NewStorage("disk3")
+	if err != nil {
+		t.Fatalf(err.Error())
+	}
+	for i := int64(0); i < 10240; i++ {
+		expected := fmt.Sprintf("Record %d", i)
+		writeErr := disk.Write(i, expected)
+		if writeErr != nil {
+			t.Fatalf(writeErr.Error())
+		}
+		actual, readErr := disk.Read(i)
+		if readErr != nil {
+			t.Fatalf(readErr.Error())
+		}
+		if actual != expected {
+			t.Fatalf(fmt.Sprintf("Expected: \"%s\", Actual: %s", expected, actual))
+		}
+	}
+}
