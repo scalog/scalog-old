@@ -119,7 +119,11 @@ Sync commits the storage's in-memory copy of recently written files to disk.
 */
 func (s *Storage) Sync() error {
 	for _, p := range s.partitions {
-		p.activeSegment.syncSegment()
+		err := p.activeSegment.syncSegment()
+		if err != nil {
+			logger.Printf(err.Error())
+			return err
+		}
 	}
 	return nil
 }
