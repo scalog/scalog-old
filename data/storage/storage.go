@@ -44,6 +44,10 @@ type partition struct {
 	activeSegment *segment
 	// baseOffset to segment
 	segments map[int64]*segment
+	// global index file that will be written to
+	activeGlobalIndex *globalIndex
+	// first gsn in global index file to global index file
+	globalIndexes map[int64]*globalIndex
 }
 
 /*
@@ -65,6 +69,18 @@ type segment struct {
 	logWriter *bufio.Writer
 	// writer for local index file
 	localIndexWriter *bufio.Writer
+}
+
+/*
+globalIndex is an index mapping an entry's global sequence number to its
+position in a segment's log file.
+*/
+type globalIndex struct {
+	// first gsn in global index file
+	startGsn          int64
+	size              int32
+	globalIndex       *os.File
+	globalIndexWriter *bufio.Writer
 }
 
 /*
@@ -130,9 +146,15 @@ func (s *Storage) Read(lsn int64) (string, error) {
 }
 
 /*
-Commit TODO
+Commit writes an entry with local sequence number [lsn] and global sequence number
+[gsn] to the appropriate global index file.
 */
 func (s *Storage) Commit(lsn int64, gsn int64) error {
+	err := s.commitToPartition(s.nextPartitionID-1, lsn, gsn)
+	if err != nil {
+		logger.Printf(err.Error())
+		return err
+	}
 	return nil
 }
 
@@ -141,10 +163,19 @@ Sync commits the storage's in-memory copy of recently written files to disk.
 */
 func (s *Storage) Sync() error {
 	for _, p := range s.partitions {
-		err := p.activeSegment.syncSegment()
-		if err != nil {
-			logger.Printf(err.Error())
-			return err
+		if p.activeSegment != nil {
+			segmentErr := p.activeSegment.syncSegment()
+			if segmentErr != nil {
+				logger.Printf(segmentErr.Error())
+				return segmentErr
+			}
+		}
+		if p.activeGlobalIndex != nil {
+			globalIndexErr := p.activeGlobalIndex.syncGlobalIndex()
+			if globalIndexErr != nil {
+				logger.Printf(globalIndexErr.Error())
+				return globalIndexErr
+			}
 		}
 	}
 	return nil
@@ -188,18 +219,11 @@ func (p *partition) writeToActiveSegment(lsn int64, record string) error {
 
 func (p *partition) addActiveSegment(lsn int64) error {
 	if p.activeSegment != nil {
-		syncErr := p.activeSegment.syncSegment()
-		if syncErr != nil {
-			return syncErr
+		err := p.activeSegment.finalizeSegment()
+		if err != nil {
+			return err
 		}
-		closeLogErr := p.activeSegment.log.Close()
-		if closeLogErr != nil {
-			return closeLogErr
-		}
-		closeIndexErr := p.activeSegment.localIndex.Close()
-		if closeIndexErr != nil {
-			return closeIndexErr
-		}
+
 	}
 	activeSegment, err := newSegment(p.partitionPath, lsn)
 	if err != nil {
@@ -273,6 +297,7 @@ func getPositionOfRelativeOffset(indexPath string, relativeOffset int32) (int32,
 	for left < right {
 		target := left + ((right - left) / 2)
 		targetOffset := int32(binary.LittleEndian.Uint32(buffer[target*8:]))
+
 		if relativeOffset == targetOffset {
 			return int32(binary.LittleEndian.Uint32(buffer[target*8+4:])), nil
 		} else if relativeOffset > targetOffset {
@@ -306,25 +331,121 @@ func getRecordAtPosition(logPath string, position int32) (string, error) {
 	return logEntry.Record, nil
 }
 
+func (s *Storage) commitToPartition(partitionID int32, lsn int64, gsn int64) error {
+	p, in := s.partitions[partitionID]
+	if !in {
+		return fmt.Errorf("Attempted to commit to non-existant partition %d", partitionID)
+	}
+	return p.commitToActiveGlobalIndex(lsn, gsn)
+}
+
+func (p *partition) commitToActiveGlobalIndex(lsn int64, gsn int64) error {
+	if p.activeGlobalIndex == nil || p.activeGlobalIndex.size >= p.maxSegmentSize ||
+		gsn > p.activeGlobalIndex.startGsn+int64(p.maxSegmentSize) {
+		err := p.addActiveGlobalIndex(gsn)
+		if err != nil {
+			return err
+		}
+	}
+	segment, logErr := p.getSegmentContainingLSN(lsn)
+	if logErr != nil {
+		return logErr
+	}
+	position, indexErr := getPositionOfRelativeOffset(segment.localIndex.Name(), int32(lsn-segment.baseOffset))
+	if indexErr != nil {
+		return indexErr
+	}
+	return p.activeGlobalIndex.commitToGlobalIndex(gsn, segment.baseOffset, position)
+}
+
+func (p *partition) addActiveGlobalIndex(gsn int64) error {
+	if p.activeGlobalIndex != nil {
+		err := p.activeGlobalIndex.finalizeGlobalIndex()
+		if err != nil {
+			return err
+		}
+	}
+	activeGlobalIndex, err := newGlobalIndex(p.partitionPath, gsn)
+	if err != nil {
+		return err
+	}
+	p.globalIndexes[activeGlobalIndex.startGsn] = activeGlobalIndex
+	p.activeGlobalIndex = activeGlobalIndex
+	return nil
+}
+
+func (g *globalIndex) commitToGlobalIndex(gsn int64, baseOffset int64, position int32) error {
+	buffer := make([]byte, 20)
+	binary.LittleEndian.PutUint64(buffer[0:], uint64(gsn))
+	binary.LittleEndian.PutUint64(buffer[8:], uint64(baseOffset))
+	binary.LittleEndian.PutUint32(buffer[16:], uint32(position))
+	for _, b := range buffer {
+		writeIndexErr := g.globalIndexWriter.WriteByte(b)
+		if writeIndexErr != nil {
+			return writeIndexErr
+		}
+	}
+	g.size++
+	return nil
+}
+
+func (g *globalIndex) finalizeGlobalIndex() error {
+	syncErr := g.syncGlobalIndex()
+	if syncErr != nil {
+		return syncErr
+	}
+	closeErr := g.globalIndex.Close()
+	if closeErr != nil {
+		return closeErr
+	}
+	return nil
+}
+
+func (g *globalIndex) syncGlobalIndex() error {
+	flushErr := g.globalIndexWriter.Flush()
+	if flushErr != nil {
+		logger.Printf(flushErr.Error())
+		return flushErr
+	}
+	syncErr := g.globalIndex.Sync()
+	if syncErr != nil {
+		logger.Printf(syncErr.Error())
+		return syncErr
+	}
+	return nil
+}
+
+func (s *segment) finalizeSegment() error {
+	syncErr := s.syncSegment()
+	if syncErr != nil {
+		return syncErr
+	}
+	closeLogErr := s.log.Close()
+	if closeLogErr != nil {
+		return closeLogErr
+	}
+	closeIndexErr := s.localIndex.Close()
+	if closeIndexErr != nil {
+		return closeIndexErr
+	}
+	return nil
+}
+
 func (s *segment) syncSegment() error {
 	flushLogErr := s.logWriter.Flush()
 	if flushLogErr != nil {
-		logger.Printf(flushLogErr.Error())
 		return flushLogErr
 	}
 	syncLogErr := s.log.Sync()
 	if syncLogErr != nil {
-		logger.Printf(syncLogErr.Error())
 		return syncLogErr
 	}
 	flushIndexErr := s.localIndexWriter.Flush()
 	if flushIndexErr != nil {
-		logger.Printf(flushIndexErr.Error())
 		return flushIndexErr
 	}
 	syncIndexErr := s.localIndex.Sync()
 	if syncIndexErr != nil {
-		logger.Printf(syncIndexErr.Error())
 		return syncIndexErr
 	}
 	return nil
@@ -333,13 +454,31 @@ func (s *segment) syncSegment() error {
 func newPartition(storagePath string, partitionID int32) *partition {
 	partitionPath := path.Join(storagePath, fmt.Sprintf("partition%d", partitionID))
 	p := &partition{
-		partitionPath:  partitionPath,
-		partitionID:    partitionID,
-		maxSegmentSize: 1024,
-		activeSegment:  nil,
-		segments:       make(map[int64]*segment),
+		partitionPath:     partitionPath,
+		partitionID:       partitionID,
+		maxSegmentSize:    1024,
+		activeSegment:     nil,
+		segments:          make(map[int64]*segment),
+		activeGlobalIndex: nil,
+		globalIndexes:     make(map[int64]*globalIndex),
 	}
 	return p
+}
+
+func newGlobalIndex(partitionPath string, startGsn int64) (*globalIndex, error) {
+	globalIndexName := getGlobalIndexName(startGsn)
+	globalIndexPath := path.Join(partitionPath, globalIndexName)
+	f, err := os.Create(globalIndexPath)
+	if err != nil {
+		return nil, err
+	}
+	g := &globalIndex{
+		startGsn:          startGsn,
+		size:              0,
+		globalIndex:       f,
+		globalIndexWriter: bufio.NewWriter(f),
+	}
+	return g, nil
 }
 
 func newSegment(partitionPath string, baseOffset int64) (*segment, error) {
@@ -375,9 +514,9 @@ func newLog(partitionPath string, baseOffset int64) (*os.File, *bufio.Writer, er
 }
 
 func newLocalIndex(partitionPath string, baseOffset int64) (*os.File, *bufio.Writer, error) {
-	indexName := getLocalIndexName(baseOffset)
-	indexPath := path.Join(partitionPath, indexName)
-	f, err := os.Create(indexPath)
+	localIndexName := getLocalIndexName(baseOffset)
+	localIndexPath := path.Join(partitionPath, localIndexName)
+	f, err := os.Create(localIndexPath)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -395,6 +534,10 @@ func newLogEntry(record string) string {
 		logger.Printf(err.Error())
 	}
 	return string(out)
+}
+
+func getGlobalIndexName(startGsn int64) string {
+	return fmt.Sprintf("%019d%s", startGsn, globalIndexSuffix)
 }
 
 func getLogName(baseOffset int64) string {

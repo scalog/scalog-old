@@ -24,9 +24,18 @@ func TestSingleReadAndWrite(t *testing.T) {
 	if writeErr != nil {
 		t.Fatalf(writeErr.Error())
 	}
-	syncErr := disk.Sync()
-	if syncErr != nil {
-		t.Fatalf(syncErr.Error())
+	segmentSyncErr := disk.Sync()
+	if segmentSyncErr != nil {
+		t.Fatalf(segmentSyncErr.Error())
+	}
+	gsn := int64(0)
+	commitErr := disk.Commit(lsn, gsn)
+	if commitErr != nil {
+		t.Fatalf(commitErr.Error())
+	}
+	globalIndexSyncErr := disk.Sync()
+	if globalIndexSyncErr != nil {
+		t.Fatalf(globalIndexSyncErr.Error())
 	}
 	actual, readErr := disk.Read(lsn)
 	if readErr != nil {
@@ -52,9 +61,23 @@ func TestMultipleReadAndWrite(t *testing.T) {
 	if writeErr1 != nil {
 		t.Fatalf(writeErr1.Error())
 	}
-	syncErr := disk.Sync()
-	if syncErr != nil {
-		t.Fatalf(syncErr.Error())
+	segmentSyncErr := disk.Sync()
+	if segmentSyncErr != nil {
+		t.Fatalf(segmentSyncErr.Error())
+	}
+	gsn0 := int64(0)
+	commitErr0 := disk.Commit(lsn0, gsn0)
+	if commitErr0 != nil {
+		t.Fatalf(commitErr0.Error())
+	}
+	gsn1 := int64(1)
+	commitErr1 := disk.Commit(lsn1, gsn1)
+	if commitErr1 != nil {
+		t.Fatalf(commitErr1.Error())
+	}
+	globalIndexSyncErr := disk.Sync()
+	if globalIndexSyncErr != nil {
+		t.Fatalf(globalIndexSyncErr.Error())
 	}
 	actual0, readErr0 := disk.Read(lsn0)
 	if readErr0 != nil {
@@ -86,9 +109,19 @@ func TestStress(t *testing.T) {
 		}
 		lsnToExpected[lsn] = expected
 	}
-	syncErr := disk.Sync()
-	if syncErr != nil {
-		t.Fatalf(syncErr.Error())
+	segmentSyncErr := disk.Sync()
+	if segmentSyncErr != nil {
+		t.Fatalf(segmentSyncErr.Error())
+	}
+	for lsn, _ := range lsnToExpected {
+		commitErr := disk.Commit(lsn, lsn)
+		if commitErr != nil {
+			t.Fatalf(commitErr.Error())
+		}
+	}
+	globalIndexSyncErr := disk.Sync()
+	if globalIndexSyncErr != nil {
+		t.Fatalf(globalIndexSyncErr.Error())
 	}
 	for lsn, expected := range lsnToExpected {
 		actual, readErr := disk.Read(lsn)
