@@ -86,7 +86,13 @@ func (server *dataServer) Subscribe(req *pb.SubscribeRequest, stream pb.Data_Sub
 	return nil
 }
 
-func (server *dataServer) Trim(context.Context, *pb.TrimRequest) (*pb.TrimResponse, error) {
-	// TODO: Implement
-	return nil, nil
+func (server *dataServer) Trim(c context.Context, req *pb.TrimRequest) (*pb.TrimResponse, error) {
+	logger.Printf("Received TRIM request from client starting at GSN %d", req.Gsn)
+
+	err := server.disk.Delete(int64(req.Gsn))
+	if err != nil {
+		logger.Printf("Failed to trim starting at GSN %d", req.Gsn)
+		return nil, err
+	}
+	return &pb.TrimResponse{}, nil
 }
