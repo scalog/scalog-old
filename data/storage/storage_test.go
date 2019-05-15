@@ -6,10 +6,11 @@ import (
 )
 
 func TestSetupStorage(t *testing.T) {
-	_, err := NewStorage("disk0")
+	disk, err := NewStorage("disk0")
 	if err != nil {
 		t.Fatalf(err.Error())
 	}
+	disk.Destroy()
 }
 
 func TestSingleReadAndWrite(t *testing.T) {
@@ -17,6 +18,7 @@ func TestSingleReadAndWrite(t *testing.T) {
 	if err != nil {
 		t.Fatalf(err.Error())
 	}
+	defer disk.Destroy()
 	expected := "Hello, World!"
 	lsn, writeErr := disk.Write(expected)
 	if writeErr != nil {
@@ -56,6 +58,7 @@ func TestMultipleReadAndWrite(t *testing.T) {
 	if err != nil {
 		t.Fatalf(err.Error())
 	}
+	defer disk.Destroy()
 	expected0 := "Record 0"
 	lsn0, writeErr0 := disk.Write(expected0)
 	if writeErr0 != nil {
@@ -119,6 +122,7 @@ func TestStress(t *testing.T) {
 	if err != nil {
 		t.Fatalf(err.Error())
 	}
+	defer disk.Destroy()
 	lsnToExpected := make(map[int64]string)
 	for i := int64(0); i < 4096; i++ {
 		expected := fmt.Sprintf("Record %d", i)

@@ -402,6 +402,10 @@ func (s *Storage) commitToPartition(partitionID int32, lsn int64, gsn int64) err
 	return p.commitToActiveGlobalIndex(lsn, gsn)
 }
 
+func (s *Storage) Destroy() error {
+	return os.RemoveAll(s.storagePath)
+}
+
 func (p *partition) commitToActiveGlobalIndex(lsn int64, gsn int64) error {
 	if p.activeGlobalIndex == nil || p.activeGlobalIndex.size >= p.maxSegmentSize ||
 		gsn > p.activeGlobalIndex.startGsn+int64(p.maxSegmentSize) {
