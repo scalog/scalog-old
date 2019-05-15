@@ -5,19 +5,22 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/scalog/scalog/data/filesystem"
 	"github.com/scalog/scalog/data/messaging"
+	"github.com/scalog/scalog/data/storage"
 	"github.com/scalog/scalog/discovery/rpc"
 	"google.golang.org/grpc"
 )
 
-func testFileSystem() {
+func testStorage() {
 	fmt.Println("Running RecordStorage")
-	rs := filesystem.New("tmp")
-	for i := 0; i < 10; i++ {
-		rs.WriteLog(int32(i), "this is "+strconv.Itoa(i))
+	rs, err := storage.NewStorage("tmp")
+	if err != nil {
+		panic(err)
 	}
-	rs.Close()
+	for i := 0; i < 10; i++ {
+		rs.Write("this is " + strconv.Itoa(i))
+	}
+	rs.Destroy()
 }
 
 func testGRPC(port string) {
@@ -88,7 +91,7 @@ func appendToShard(address string) {
 
 func main() {
 	fmt.Println("Test started")
-	// testFileSystem()
+	// testStorage()
 	// testGRPC("0.0.0.0:21024")
 	connectToLiveCluster("130.127.133.35:30823")
 }
