@@ -1,5 +1,5 @@
 # Start from golang v1.11 base image
-FROM golang:1.11 as builder
+FROM golang:1.12 as builder
 
 # Copy everything from the current directory to the PWD(Present Working Directory) inside the container
 COPY . /go/src/github.com/scalog/scalog/
