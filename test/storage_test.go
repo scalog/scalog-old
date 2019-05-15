@@ -113,7 +113,7 @@ func TestStress(t *testing.T) {
 	if segmentSyncErr != nil {
 		t.Fatalf(segmentSyncErr.Error())
 	}
-	for lsn, _ := range lsnToExpected {
+	for lsn := range lsnToExpected {
 		commitErr := disk.Commit(lsn, lsn)
 		if commitErr != nil {
 			t.Fatalf(commitErr.Error())
