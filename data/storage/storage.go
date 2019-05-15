@@ -100,10 +100,10 @@ NewStorage creates a new directory at [storagePath] and returns a new instance
 of storage for creating partitions and writing to them.
 */
 func NewStorage(storagePath string) (*Storage, error) {
-	storageErr := os.MkdirAll(storagePath, os.ModePerm)
-	if storageErr != nil {
-		log.Printf(storageErr.Error())
-		return nil, storageErr
+	err := os.MkdirAll(storagePath, os.ModePerm)
+	if err != nil {
+		log.Printf(err.Error())
+		return nil, err
 	}
 	s := &Storage{
 		storagePath:     storagePath,
@@ -111,10 +111,10 @@ func NewStorage(storagePath string) (*Storage, error) {
 		nextPartitionID: 0,
 		partitions:      make(map[int32]*partition),
 	}
-	_, partitionErr := s.addPartition()
-	if partitionErr != nil {
-		log.Printf(partitionErr.Error())
-		return nil, partitionErr
+	_, err = s.addPartition()
+	if err != nil {
+		log.Printf(err.Error())
+		return nil, err
 	}
 	return s, nil
 }
@@ -176,17 +176,17 @@ Sync commits the storage's in-memory copy of recently written files to disk.
 func (s *Storage) Sync() error {
 	for _, p := range s.partitions {
 		if p.activeSegment != nil {
-			segmentErr := p.activeSegment.sync()
-			if segmentErr != nil {
-				log.Printf(segmentErr.Error())
-				return segmentErr
+			err := p.activeSegment.sync()
+			if err != nil {
+				log.Printf(err.Error())
+				return err
 			}
 		}
 		if p.activeGlobalIndex != nil {
-			globalIndexErr := p.activeGlobalIndex.sync()
-			if globalIndexErr != nil {
-				log.Printf(globalIndexErr.Error())
-				return globalIndexErr
+			err := p.activeGlobalIndex.sync()
+			if err != nil {
+				log.Printf(err.Error())
+				return err
 			}
 		}
 	}
@@ -248,17 +248,17 @@ func (p *partition) addActiveSegment(lsn int64) error {
 
 func (s *segment) writeToSegment(lsn int64, record string) error {
 	logEntry := newLogEntry(record)
-	bytesWritten, writeLogErr := s.logWriter.WriteString(logEntry + "\n")
-	if writeLogErr != nil {
-		return writeLogErr
+	bytesWritten, err := s.logWriter.WriteString(logEntry + "\n")
+	if err != nil {
+		return err
 	}
 	buffer := make([]byte, 8)
 	binary.LittleEndian.PutUint32(buffer[0:], uint32(s.nextRelativeOffset))
 	binary.LittleEndian.PutUint32(buffer[4:], uint32(s.nextPosition))
 	for _, b := range buffer {
-		writeIndexErr := s.localIndexWriter.WriteByte(b)
-		if writeIndexErr != nil {
-			return writeIndexErr
+		err := s.localIndexWriter.WriteByte(b)
+		if err != nil {
+			return err
 		}
 	}
 	s.nextRelativeOffset++
@@ -288,13 +288,13 @@ func (p *partition) getSegmentContainingLSN(lsn int64) (*segment, error) {
 }
 
 func (s *segment) readFromSegment(relativeOffset int32) (string, error) {
-	position, indexErr := getPositionOfRelativeOffset(s.localIndex.Name(), relativeOffset)
-	if indexErr != nil {
-		return "", indexErr
+	position, err := getPositionOfRelativeOffset(s.localIndex.Name(), relativeOffset)
+	if err != nil {
+		return "", err
 	}
-	record, logErr := getRecordAtPosition(s.log.Name(), position)
-	if logErr != nil {
-		return "", logErr
+	record, err := getRecordAtPosition(s.log.Name(), position)
+	if err != nil {
+		return "", err
 	}
 	return record, nil
 }
@@ -321,23 +321,23 @@ func getPositionOfRelativeOffset(indexPath string, relativeOffset int32) (int32,
 }
 
 func getRecordAtPosition(logPath string, position int32) (string, error) {
-	log, osErr := os.Open(logPath)
-	if osErr != nil {
-		return "", osErr
+	log, err := os.Open(logPath)
+	if err != nil {
+		return "", err
 	}
 	logReader := bufio.NewReader(log)
-	_, discardErr := logReader.Discard(int(position))
-	if discardErr != nil {
-		return "", discardErr
+	_, err = logReader.Discard(int(position))
+	if err != nil {
+		return "", err
 	}
-	line, _, readErr := logReader.ReadLine()
-	if readErr != nil {
-		return "", readErr
+	line, _, err := logReader.ReadLine()
+	if err != nil {
+		return "", err
 	}
 	logEntry := logEntry{}
-	jsonErr := json.Unmarshal(line, &logEntry)
-	if jsonErr != nil {
-		return "", jsonErr
+	err = json.Unmarshal(line, &logEntry)
+	if err != nil {
+		return "", err
 	}
 	return logEntry.Record, nil
 }
@@ -351,13 +351,13 @@ func (s *Storage) readGSNFromPartition(partitionID int32, gsn int64) (string, er
 	if err != nil {
 		return "", err
 	}
-	baseOffset, position, globalIndexErr := getBaseOffsetAndPositionOfGSN(g.globalIndex.Name(), gsn, g.startGsn)
-	if globalIndexErr != nil {
-		return "", globalIndexErr
+	baseOffset, position, err := getBaseOffsetAndPositionOfGSN(g.globalIndex.Name(), gsn, g.startGsn)
+	if err != nil {
+		return "", err
 	}
-	record, logErr := getRecordAtPosition(p.segments[baseOffset].log.Name(), position)
-	if logErr != nil {
-		return "", logErr
+	record, err := getRecordAtPosition(p.segments[baseOffset].log.Name(), position)
+	if err != nil {
+		return "", err
 	}
 	return record, nil
 }
@@ -414,13 +414,13 @@ func (p *partition) commitToActiveGlobalIndex(lsn int64, gsn int64) error {
 			return err
 		}
 	}
-	segment, logErr := p.getSegmentContainingLSN(lsn)
-	if logErr != nil {
-		return logErr
+	segment, err := p.getSegmentContainingLSN(lsn)
+	if err != nil {
+		return err
 	}
-	position, indexErr := getPositionOfRelativeOffset(segment.localIndex.Name(), int32(lsn-segment.baseOffset))
-	if indexErr != nil {
-		return indexErr
+	position, err := getPositionOfRelativeOffset(segment.localIndex.Name(), int32(lsn-segment.baseOffset))
+	if err != nil {
+		return err
 	}
 	return p.activeGlobalIndex.commit(gsn, segment.baseOffset, position)
 }
@@ -447,9 +447,9 @@ func (g *globalIndex) commit(gsn int64, baseOffset int64, position int32) error 
 	binary.LittleEndian.PutUint64(buffer[4:], uint64(baseOffset))
 	binary.LittleEndian.PutUint32(buffer[12:], uint32(position))
 	for _, b := range buffer {
-		writeIndexErr := g.globalIndexWriter.WriteByte(b)
-		if writeIndexErr != nil {
-			return writeIndexErr
+		err := g.globalIndexWriter.WriteByte(b)
+		if err != nil {
+			return err
 		}
 	}
 	g.size++
@@ -457,63 +457,63 @@ func (g *globalIndex) commit(gsn int64, baseOffset int64, position int32) error 
 }
 
 func (g *globalIndex) finalize() error {
-	syncErr := g.sync()
-	if syncErr != nil {
-		return syncErr
+	err := g.sync()
+	if err != nil {
+		return err
 	}
-	closeErr := g.globalIndex.Close()
-	if closeErr != nil {
-		return closeErr
+	err = g.globalIndex.Close()
+	if err != nil {
+		return err
 	}
 	return nil
 }
 
 func (g *globalIndex) sync() error {
-	flushErr := g.globalIndexWriter.Flush()
-	if flushErr != nil {
-		log.Printf(flushErr.Error())
-		return flushErr
+	err := g.globalIndexWriter.Flush()
+	if err != nil {
+		log.Printf(err.Error())
+		return err
 	}
-	syncErr := g.globalIndex.Sync()
-	if syncErr != nil {
-		log.Printf(syncErr.Error())
-		return syncErr
+	err = g.globalIndex.Sync()
+	if err != nil {
+		log.Printf(err.Error())
+		return err
 	}
 	return nil
 }
 
 func (s *segment) finalize() error {
-	syncErr := s.sync()
-	if syncErr != nil {
-		return syncErr
+	err := s.sync()
+	if err != nil {
+		return err
 	}
-	closeLogErr := s.log.Close()
-	if closeLogErr != nil {
-		return closeLogErr
+	err = s.log.Close()
+	if err != nil {
+		return err
 	}
-	closeIndexErr := s.localIndex.Close()
-	if closeIndexErr != nil {
-		return closeIndexErr
+	err = s.localIndex.Close()
+	if err != nil {
+		return err
 	}
 	return nil
 }
 
 func (s *segment) sync() error {
-	flushLogErr := s.logWriter.Flush()
-	if flushLogErr != nil {
-		return flushLogErr
+	err := s.logWriter.Flush()
+	if err != nil {
+		return err
 	}
-	syncLogErr := s.log.Sync()
-	if syncLogErr != nil {
-		return syncLogErr
+	err = s.log.Sync()
+	if err != nil {
+		return err
 	}
-	flushIndexErr := s.localIndexWriter.Flush()
-	if flushIndexErr != nil {
-		return flushIndexErr
+	err = s.localIndexWriter.Flush()
+	if err != nil {
+		return err
 	}
-	syncIndexErr := s.localIndex.Sync()
-	if syncIndexErr != nil {
-		return syncIndexErr
+	err = s.localIndex.Sync()
+	if err != nil {
+		return err
 	}
 	return nil
 }
@@ -549,13 +549,13 @@ func newGlobalIndex(partitionPath string, startGsn int64) (*globalIndex, error) 
 }
 
 func newSegment(partitionPath string, baseOffset int64) (*segment, error) {
-	log, logWriter, logErr := newLog(partitionPath, baseOffset)
-	if logErr != nil {
-		return nil, logErr
+	log, logWriter, err := newLog(partitionPath, baseOffset)
+	if err != nil {
+		return nil, err
 	}
-	index, indexWriter, indexErr := newLocalIndex(partitionPath, baseOffset)
-	if indexErr != nil {
-		return nil, indexErr
+	index, indexWriter, err := newLocalIndex(partitionPath, baseOffset)
+	if err != nil {
+		return nil, err
 	}
 	s := &segment{
 		baseOffset:         baseOffset,
@@ -572,9 +572,9 @@ func newSegment(partitionPath string, baseOffset int64) (*segment, error) {
 func newLog(partitionPath string, baseOffset int64) (*os.File, *bufio.Writer, error) {
 	logName := getLogName(baseOffset)
 	logPath := path.Join(partitionPath, logName)
-	f, fileErr := os.Create(logPath)
-	if fileErr != nil {
-		return nil, nil, fileErr
+	f, err := os.Create(logPath)
+	if err != nil {
+		return nil, nil, err
 	}
 	w := bufio.NewWriter(f)
 	return f, w, nil
