@@ -176,14 +176,14 @@ Sync commits the storage's in-memory copy of recently written files to disk.
 func (s *Storage) Sync() error {
 	for _, p := range s.partitions {
 		if p.activeSegment != nil {
-			segmentErr := p.activeSegment.syncSegment()
+			segmentErr := p.activeSegment.sync()
 			if segmentErr != nil {
 				logger.Printf(segmentErr.Error())
 				return segmentErr
 			}
 		}
 		if p.activeGlobalIndex != nil {
-			globalIndexErr := p.activeGlobalIndex.syncGlobalIndex()
+			globalIndexErr := p.activeGlobalIndex.sync()
 			if globalIndexErr != nil {
 				logger.Printf(globalIndexErr.Error())
 				return globalIndexErr
@@ -231,7 +231,7 @@ func (p *partition) writeToActiveSegment(lsn int64, record string) error {
 
 func (p *partition) addActiveSegment(lsn int64) error {
 	if p.activeSegment != nil {
-		err := p.activeSegment.finalizeSegment()
+		err := p.activeSegment.finalize()
 		if err != nil {
 			return err
 		}
@@ -423,7 +423,7 @@ func (p *partition) commitToActiveGlobalIndex(lsn int64, gsn int64) error {
 
 func (p *partition) addActiveGlobalIndex(gsn int64) error {
 	if p.activeGlobalIndex != nil {
-		err := p.activeGlobalIndex.finalizeGlobalIndex()
+		err := p.activeGlobalIndex.finalize()
 		if err != nil {
 			return err
 		}
@@ -452,8 +452,8 @@ func (g *globalIndex) commitToGlobalIndex(gsn int64, baseOffset int64, position 
 	return nil
 }
 
-func (g *globalIndex) finalizeGlobalIndex() error {
-	syncErr := g.syncGlobalIndex()
+func (g *globalIndex) finalize() error {
+	syncErr := g.sync()
 	if syncErr != nil {
 		return syncErr
 	}
@@ -464,7 +464,7 @@ func (g *globalIndex) finalizeGlobalIndex() error {
 	return nil
 }
 
-func (g *globalIndex) syncGlobalIndex() error {
+func (g *globalIndex) sync() error {
 	flushErr := g.globalIndexWriter.Flush()
 	if flushErr != nil {
 		logger.Printf(flushErr.Error())
@@ -478,8 +478,8 @@ func (g *globalIndex) syncGlobalIndex() error {
 	return nil
 }
 
-func (s *segment) finalizeSegment() error {
-	syncErr := s.syncSegment()
+func (s *segment) finalize() error {
+	syncErr := s.sync()
 	if syncErr != nil {
 		return syncErr
 	}
@@ -494,7 +494,7 @@ func (s *segment) finalizeSegment() error {
 	return nil
 }
 
-func (s *segment) syncSegment() error {
+func (s *segment) sync() error {
 	flushLogErr := s.logWriter.Flush()
 	if flushLogErr != nil {
 		return flushLogErr

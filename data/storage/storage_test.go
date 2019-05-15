@@ -1,21 +1,19 @@
-package test
+package storage
 
 import (
 	"fmt"
 	"testing"
-
-	"github.com/scalog/scalog/data/storage"
 )
 
 func TestSetupStorage(t *testing.T) {
-	_, err := storage.NewStorage("disk0")
+	_, err := NewStorage("disk0")
 	if err != nil {
 		t.Fatalf(err.Error())
 	}
 }
 
 func TestSingleReadAndWrite(t *testing.T) {
-	disk, err := storage.NewStorage("disk1")
+	disk, err := NewStorage("disk1")
 	if err != nil {
 		t.Fatalf(err.Error())
 	}
@@ -54,7 +52,7 @@ func TestSingleReadAndWrite(t *testing.T) {
 }
 
 func TestMultipleReadAndWrite(t *testing.T) {
-	disk, err := storage.NewStorage("disk2")
+	disk, err := NewStorage("disk2")
 	if err != nil {
 		t.Fatalf(err.Error())
 	}
@@ -117,7 +115,7 @@ func TestMultipleReadAndWrite(t *testing.T) {
 }
 
 func TestStress(t *testing.T) {
-	disk, err := storage.NewStorage("disk3")
+	disk, err := NewStorage("disk3")
 	if err != nil {
 		t.Fatalf(err.Error())
 	}
