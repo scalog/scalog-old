@@ -351,7 +351,7 @@ func (s *Storage) readGSNFromPartition(partitionID int32, gsn int64) (string, er
 	if err != nil {
 		return "", err
 	}
-	baseOffset, position, globalIndexErr := getBaseOffsetAndPositionOfGSN(g.globalIndex.Name(), gsn)
+	baseOffset, position, globalIndexErr := getBaseOffsetAndPositionOfGSN(g.globalIndex.Name(), gsn, g.startGsn)
 	if globalIndexErr != nil {
 		return "", globalIndexErr
 	}
@@ -371,19 +371,19 @@ func (p *partition) getGlobalIndexContainingGSN(gsn int64) (*globalIndex, error)
 	return nil, fmt.Errorf("Failed to find global index containing gsn %d", gsn)
 }
 
-func getBaseOffsetAndPositionOfGSN(globalIndexPath string, gsn int64) (int64, int32, error) {
+func getBaseOffsetAndPositionOfGSN(globalIndexPath string, gsn int64, startGsn int64) (int64, int32, error) {
 	buffer, err := ioutil.ReadFile(globalIndexPath)
 	if err != nil {
 		return -1, -1, err
 	}
 	left := 0
-	right := len(buffer) / 20
+	right := len(buffer) / 16
 	for left < right {
 		target := left + ((right - left) / 2)
-		targetGsn := int64(binary.LittleEndian.Uint64(buffer[target*20:]))
+		targetGsn := int64(binary.LittleEndian.Uint32(buffer[target*16:])) + startGsn
 		if gsn == targetGsn {
-			baseOffset := int64(binary.LittleEndian.Uint64(buffer[target*20+8:]))
-			position := int32(binary.LittleEndian.Uint32(buffer[target*20+16:]))
+			baseOffset := int64(binary.LittleEndian.Uint64(buffer[target*16+4:]))
+			position := int32(binary.LittleEndian.Uint32(buffer[target*16+12:]))
 			return baseOffset, position, nil
 		} else if gsn > targetGsn {
 			left = target
@@ -438,10 +438,10 @@ func (p *partition) addActiveGlobalIndex(gsn int64) error {
 }
 
 func (g *globalIndex) commitToGlobalIndex(gsn int64, baseOffset int64, position int32) error {
-	buffer := make([]byte, 20)
-	binary.LittleEndian.PutUint64(buffer[0:], uint64(gsn))
-	binary.LittleEndian.PutUint64(buffer[8:], uint64(baseOffset))
-	binary.LittleEndian.PutUint32(buffer[16:], uint32(position))
+	buffer := make([]byte, 16)
+	binary.LittleEndian.PutUint32(buffer[0:], uint32(gsn-baseOffset))
+	binary.LittleEndian.PutUint64(buffer[4:], uint64(baseOffset))
+	binary.LittleEndian.PutUint32(buffer[12:], uint32(position))
 	for _, b := range buffer {
 		writeIndexErr := g.globalIndexWriter.WriteByte(b)
 		if writeIndexErr != nil {
