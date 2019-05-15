@@ -4,12 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"net"
 
 	"github.com/scalog/scalog/discovery/rpc"
 	"github.com/scalog/scalog/internal/pkg/kube"
-	"github.com/scalog/scalog/logger"
+	log "github.com/scalog/scalog/logger"
 	"github.com/spf13/viper"
 	"google.golang.org/grpc"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -18,14 +17,14 @@ import (
 
 // Start serving requests for the data layer
 func Start() {
-	logger.Printf("Discovery server starting on %d\n", viper.Get("port"))
+	log.Printf("Discovery server starting on %d\n", viper.Get("port"))
 	lis, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", viper.Get("port")))
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
 	}
 	grpcServer := grpc.NewServer()
 	rpc.RegisterDiscoveryServer(grpcServer, newDiscoveryServer())
-	logger.Printf("Discovery server available on %d\n", viper.Get("port"))
+	log.Printf("Discovery server available on %d\n", viper.Get("port"))
 	grpcServer.Serve(lis)
 }
 
@@ -37,7 +36,7 @@ type discoveryServer struct {
 func (ds *discoveryServer) DiscoverServers(ctx context.Context, req *rpc.DiscoverRequest) (*rpc.DiscoverResponse, error) {
 	services, err := ds.client.CoreV1().Services(viper.GetString("namespace")).List(ds.serverLabels)
 	if err != nil {
-		logger.Panicf(err.Error())
+		log.Panicf(err.Error())
 	}
 	serviceIPs := make([]*rpc.DataServerAddress, len(services.Items))
 	for i, service := range services.Items {

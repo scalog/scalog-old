@@ -17,7 +17,6 @@ package order
 import (
 	"context"
 	"fmt"
-	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -26,6 +25,7 @@ import (
 	"time"
 
 	"github.com/scalog/scalog/internal/pkg/golib"
+	log "github.com/scalog/scalog/logger"
 
 	"go.etcd.io/etcd/etcdserver/api/rafthttp"
 	"go.etcd.io/etcd/etcdserver/api/snap"
@@ -190,7 +190,7 @@ func (rc *raftNode) publishEntries(ents []raftpb.Entry) bool {
 				}
 			case raftpb.ConfChangeRemoveNode:
 				if cc.NodeID == uint64(rc.id) {
-					log.Println("I've been removed from the cluster! Shutting down.")
+					log.Printf("I've been removed from the cluster! Shutting down.")
 					return false
 				}
 				rc.transport.RemovePeer(types.ID(cc.NodeID))
@@ -390,7 +390,7 @@ func (rc *raftNode) maybeTriggerSnapshot() {
 	log.Printf("start snapshot [applied index: %d | last snapshot index: %d]", rc.appliedIndex, rc.snapshotIndex)
 	data, err := rc.getSnapshot()
 	if err != nil {
-		log.Panic(err)
+		log.Panicf("%v", err)
 	}
 	snap, err := rc.raftStorage.CreateSnapshot(rc.appliedIndex, &rc.confState, data)
 	if err != nil {
