@@ -481,17 +481,17 @@ func (s *Storage) deleteFromPartition(partitionID int32, gsn int64) error {
 	if err != nil {
 		return err
 	}
-	deleteGlobalIndexErr := p.deleteGlobalIndexes(g.startGsn)
-	if deleteGlobalIndexErr != nil {
-		return deleteGlobalIndexErr
+	err = p.deleteGlobalIndexes(g.startGsn)
+	if err != nil {
+		return err
 	}
-	baseOffset, _, globalIndexErr := getBaseOffsetAndPositionOfGSN(g.globalIndex.Name(), gsn, g.startGsn)
-	if globalIndexErr != nil {
-		return globalIndexErr
+	baseOffset, _, err := getBaseOffsetAndPositionOfGSN(g.globalIndex.Name(), gsn, g.startGsn)
+	if err != nil {
+		return err
 	}
-	deleteSegmentsErr := p.deleteSegments(baseOffset)
-	if deleteSegmentsErr != nil {
-		return deleteSegmentsErr
+	err = p.deleteSegments(baseOffset)
+	if err != nil {
+		return err
 	}
 	return nil
 }
@@ -517,13 +517,13 @@ func (p *partition) deleteSegments(threshold int64) error {
 	trimmed := make([]int64, 64)
 	for baseOffset, s := range p.segments {
 		if baseOffset < threshold {
-			logErr := os.Remove(s.log.Name())
-			if logErr != nil {
-				return logErr
+			err := os.Remove(s.log.Name())
+			if err != nil {
+				return err
 			}
-			indexErr := os.Remove(s.localIndex.Name())
-			if indexErr != nil {
-				return indexErr
+			err = os.Remove(s.localIndex.Name())
+			if err != nil {
+				return err
 			}
 			trimmed = append(trimmed, baseOffset)
 		}
