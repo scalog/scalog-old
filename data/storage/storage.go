@@ -422,7 +422,7 @@ func (p *partition) commitToActiveGlobalIndex(lsn int64, gsn int64) error {
 	if err != nil {
 		return err
 	}
-	return p.activeGlobalIndex.commit(gsn, segment.baseOffset, position)
+	return p.activeGlobalIndex.commit(gsn-p.activeGlobalIndex.startGsn, segment.baseOffset, position)
 }
 
 func (p *partition) addActiveGlobalIndex(gsn int64) error {
@@ -441,9 +441,9 @@ func (p *partition) addActiveGlobalIndex(gsn int64) error {
 	return nil
 }
 
-func (g *globalIndex) commit(gsn int64, baseOffset int64, position int32) error {
+func (g *globalIndex) commit(relativeGsn int64, baseOffset int64, position int32) error {
 	buffer := make([]byte, 16)
-	binary.LittleEndian.PutUint32(buffer[0:], uint32(gsn-baseOffset))
+	binary.LittleEndian.PutUint32(buffer[0:], uint32(relativeGsn))
 	binary.LittleEndian.PutUint64(buffer[4:], uint64(baseOffset))
 	binary.LittleEndian.PutUint32(buffer[12:], uint32(position))
 	for _, b := range buffer {

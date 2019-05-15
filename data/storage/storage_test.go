@@ -137,7 +137,7 @@ func TestStress(t *testing.T) {
 		t.Fatalf(segmentSyncErr.Error())
 	}
 	for i := int64(0); i < 4096; i++ {
-		commitErr := disk.Commit(i, i)
+		commitErr := disk.Commit(i, i+2048)
 		if commitErr != nil {
 			t.Fatalf(commitErr.Error())
 		}
@@ -154,7 +154,7 @@ func TestStress(t *testing.T) {
 		if actualLSN != lsnToExpected[i] {
 			t.Fatalf(fmt.Sprintf("Expected: \"%s\", Actual: %s", lsnToExpected[i], actualLSN))
 		}
-		actualGSN, readGSNErr := disk.ReadGSN(i)
+		actualGSN, readGSNErr := disk.ReadGSN(i + 2048)
 		if readGSNErr != nil {
 			t.Fatalf(readGSNErr.Error())
 		}
