@@ -134,10 +134,22 @@ func (s *Storage) Write(record string) (int64, error) {
 }
 
 /*
-Read reads an entry from the default partition.
+ReadLSN reads an entry with local sequence number [lsn] from the default partition.
 */
-func (s *Storage) Read(lsn int64) (string, error) {
-	record, err := s.readFromPartition(s.nextPartitionID-1, lsn)
+func (s *Storage) ReadLSN(lsn int64) (string, error) {
+	record, err := s.readLSNFromPartition(s.nextPartitionID-1, lsn)
+	if err != nil {
+		logger.Printf(err.Error())
+		return "", err
+	}
+	return record, nil
+}
+
+/*
+ReadGSN reads an entry with global sequence number [gsn] from the default partition.
+*/
+func (s *Storage) ReadGSN(gsn int64) (string, error) {
+	record, err := s.readGSNFromPartition(s.nextPartitionID-1, gsn)
 	if err != nil {
 		logger.Printf(err.Error())
 		return "", err
@@ -254,7 +266,7 @@ func (s *segment) writeToSegment(lsn int64, record string) error {
 	return nil
 }
 
-func (s *Storage) readFromPartition(partitionID int32, lsn int64) (string, error) {
+func (s *Storage) readLSNFromPartition(partitionID int32, lsn int64) (string, error) {
 	p, in := s.partitions[partitionID]
 	if !in {
 		return "", fmt.Errorf("Attempted to read from non-existant partition %d", partitionID)
@@ -297,7 +309,6 @@ func getPositionOfRelativeOffset(indexPath string, relativeOffset int32) (int32,
 	for left < right {
 		target := left + ((right - left) / 2)
 		targetOffset := int32(binary.LittleEndian.Uint32(buffer[target*8:]))
-
 		if relativeOffset == targetOffset {
 			return int32(binary.LittleEndian.Uint32(buffer[target*8+4:])), nil
 		} else if relativeOffset > targetOffset {
@@ -329,6 +340,58 @@ func getRecordAtPosition(logPath string, position int32) (string, error) {
 		return "", jsonErr
 	}
 	return logEntry.Record, nil
+}
+
+func (s *Storage) readGSNFromPartition(partitionID int32, gsn int64) (string, error) {
+	p, in := s.partitions[partitionID]
+	if !in {
+		return "", fmt.Errorf("Attempted to read from non-existant partition %d", partitionID)
+	}
+	g, err := p.getGlobalIndexContainingGSN(gsn)
+	if err != nil {
+		return "", err
+	}
+	baseOffset, position, globalIndexErr := getBaseOffsetAndPositionOfGSN(g.globalIndex.Name(), gsn)
+	if globalIndexErr != nil {
+		return "", globalIndexErr
+	}
+	record, logErr := getRecordAtPosition(p.segments[baseOffset].log.Name(), position)
+	if logErr != nil {
+		return "", logErr
+	}
+	return record, nil
+}
+
+func (p *partition) getGlobalIndexContainingGSN(gsn int64) (*globalIndex, error) {
+	for startGsn := range p.globalIndexes {
+		if gsn >= startGsn && gsn < startGsn+int64(p.maxSegmentSize) {
+			return p.globalIndexes[startGsn], nil
+		}
+	}
+	return nil, fmt.Errorf("Failed to find global index containing gsn %d", gsn)
+}
+
+func getBaseOffsetAndPositionOfGSN(globalIndexPath string, gsn int64) (int64, int32, error) {
+	buffer, err := ioutil.ReadFile(globalIndexPath)
+	if err != nil {
+		return -1, -1, err
+	}
+	left := 0
+	right := len(buffer) / 20
+	for left < right {
+		target := left + ((right - left) / 2)
+		targetGsn := int64(binary.LittleEndian.Uint64(buffer[target*20:]))
+		if gsn == targetGsn {
+			baseOffset := int64(binary.LittleEndian.Uint64(buffer[target*20+8:]))
+			position := int32(binary.LittleEndian.Uint32(buffer[target*20+16:]))
+			return baseOffset, position, nil
+		} else if gsn > targetGsn {
+			left = target
+		} else {
+			right = target
+		}
+	}
+	return -1, -1, fmt.Errorf("Failed to find gsn %d", gsn)
 }
 
 func (s *Storage) commitToPartition(partitionID int32, lsn int64, gsn int64) error {
