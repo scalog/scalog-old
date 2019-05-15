@@ -171,6 +171,19 @@ func (s *Storage) Commit(lsn int64, gsn int64) error {
 }
 
 /*
+Delete deletes the logs, local indexes, and global indexes for all records with
+gsn < [gsn].
+*/
+func (s *Storage) Delete(gsn int64) error {
+	err := s.deleteFromPartition(s.nextPartitionID-1, gsn)
+	if err != nil {
+		log.Printf(err.Error())
+		return err
+	}
+	return nil
+}
+
+/*
 Sync commits the storage's in-memory copy of recently written files to disk.
 */
 func (s *Storage) Sync() error {
@@ -191,6 +204,13 @@ func (s *Storage) Sync() error {
 		}
 	}
 	return nil
+}
+
+/*
+Destroy deletes all files and directories associated with the storage instance.
+*/
+func (s *Storage) Destroy() error {
+	return os.RemoveAll(s.storagePath)
 }
 
 /*
@@ -402,10 +422,6 @@ func (s *Storage) commitToPartition(partitionID int32, lsn int64, gsn int64) err
 	return p.commitToActiveGlobalIndex(lsn, gsn)
 }
 
-func (s *Storage) Destroy() error {
-	return os.RemoveAll(s.storagePath)
-}
-
 func (p *partition) commitToActiveGlobalIndex(lsn int64, gsn int64) error {
 	if p.activeGlobalIndex == nil || p.activeGlobalIndex.size >= p.maxSegmentSize ||
 		gsn > p.activeGlobalIndex.startGsn+int64(p.maxSegmentSize) {
@@ -453,6 +469,68 @@ func (g *globalIndex) commit(relativeGsn int64, baseOffset int64, position int32
 		}
 	}
 	g.size++
+	return nil
+}
+
+func (s *Storage) deleteFromPartition(partitionID int32, gsn int64) error {
+	p, in := s.partitions[partitionID]
+	if !in {
+		return fmt.Errorf("Attempted to delete from non-existant partition %d", partitionID)
+	}
+	g, err := p.getGlobalIndexContainingGSN(gsn)
+	if err != nil {
+		return err
+	}
+	deleteGlobalIndexErr := p.deleteGlobalIndexes(g.startGsn)
+	if deleteGlobalIndexErr != nil {
+		return deleteGlobalIndexErr
+	}
+	baseOffset, _, globalIndexErr := getBaseOffsetAndPositionOfGSN(g.globalIndex.Name(), gsn, g.startGsn)
+	if globalIndexErr != nil {
+		return globalIndexErr
+	}
+	deleteSegmentsErr := p.deleteSegments(baseOffset)
+	if deleteSegmentsErr != nil {
+		return deleteSegmentsErr
+	}
+	return nil
+}
+
+func (p *partition) deleteGlobalIndexes(threshold int64) error {
+	trimmed := make([]int64, 64)
+	for startGsn, g := range p.globalIndexes {
+		if startGsn < threshold {
+			err := os.Remove(g.globalIndex.Name())
+			if err != nil {
+				return err
+			}
+		}
+		trimmed = append(trimmed, startGsn)
+	}
+	for _, startGsn := range trimmed {
+		delete(p.globalIndexes, startGsn)
+	}
+	return nil
+}
+
+func (p *partition) deleteSegments(threshold int64) error {
+	trimmed := make([]int64, 64)
+	for baseOffset, s := range p.segments {
+		if baseOffset < threshold {
+			logErr := os.Remove(s.log.Name())
+			if logErr != nil {
+				return logErr
+			}
+			indexErr := os.Remove(s.localIndex.Name())
+			if indexErr != nil {
+				return indexErr
+			}
+			trimmed = append(trimmed, baseOffset)
+		}
+	}
+	for _, baseOffset := range trimmed {
+		delete(p.segments, baseOffset)
+	}
 	return nil
 }
 

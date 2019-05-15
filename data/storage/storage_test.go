@@ -2,6 +2,7 @@ package storage
 
 import (
 	"fmt"
+	"os"
 	"testing"
 )
 
@@ -162,4 +163,61 @@ func TestStress(t *testing.T) {
 			t.Fatalf(fmt.Sprintf("Expected: \"%s\", Actual: %s", lsnToExpected[i], actualGSN))
 		}
 	}
+}
+
+func TestDelete(t *testing.T) {
+	disk, err := NewStorage("disk4")
+	if err != nil {
+		t.Fatalf(err.Error())
+	}
+	defer disk.Destroy()
+	for i := 0; i < 2048; i++ {
+		_, err := disk.Write(fmt.Sprintf("Record %d", i))
+		if err != nil {
+			t.Fatalf(err.Error())
+		}
+	}
+	err = disk.Sync()
+	if err != nil {
+		t.Fatalf(err.Error())
+	}
+	for i := int64(0); i < 2048; i++ {
+		err = disk.Commit(i, i+2048)
+		if err != nil {
+			t.Fatalf(err.Error())
+		}
+	}
+	err = disk.Sync()
+	if err != nil {
+		t.Fatalf(err.Error())
+	}
+	err = disk.Delete(3072)
+	if err != nil {
+		t.Fatalf(err.Error())
+	}
+	if exists("disk4/partition0/0000000000000000000.local") {
+		t.Fatalf("Failed to delete disk4/partition0/0000000000000000000.local")
+	}
+	if exists("disk4/partition0/0000000000000000000.log") {
+		t.Fatalf("Failed to delete disk4/partition0/0000000000000000000.log")
+	}
+	if exists("disk4/partition0/0000000000000002048.global") {
+		t.Fatalf("Failed to delete disk4/partition0/0000000000000002048.global")
+	}
+	if !exists("disk4/partition0/0000000000000001024.local") {
+		t.Fatalf("Incorrectly deleted disk4/partition0/0000000000000001024.local")
+	}
+	if !exists("disk4/partition0/0000000000000001024.log") {
+		t.Fatalf("Incorrectly deleted disk4/partition0/0000000000000001024.log")
+	}
+	if !exists("disk4/partition0/0000000000000003072.global") {
+		t.Fatalf("Incorrectly deleted disk4/partition0/0000000000000003072.global")
+	}
+}
+
+func exists(path string) bool {
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return false
+	}
+	return true
 }
