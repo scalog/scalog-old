@@ -13,8 +13,8 @@ import (
 
 	"github.com/scalog/scalog/order"
 
-	"github.com/scalog/scalog/data/filesystem"
 	"github.com/scalog/scalog/data/messaging"
+	"github.com/scalog/scalog/data/storage"
 	"github.com/scalog/scalog/logger"
 	om "github.com/scalog/scalog/order/messaging"
 	"github.com/spf13/viper"
@@ -28,6 +28,7 @@ import (
 type Record struct {
 	cid        int32
 	csn        int32
+	lsn        int64
 	gsn        int32
 	record     string
 	commitResp chan int32 // Should send back a GSN to be forwarded to client
@@ -74,7 +75,7 @@ type dataServer struct {
 	// True if this replica has been finalized
 	isFinalized bool
 	// Stable storage for entries into this shard
-	stableStorage *filesystem.RecordStorage
+	disk *storage.Storage
 	// Main storage stacks for incoming records
 	serverBuffers [][]Record
 	// Protects all internal structures
@@ -135,23 +136,22 @@ func newDataServer() *dataServer {
 		}
 	}
 
-	fs := filesystem.New("scalog-db")
+	disk, err := storage.NewStorage("disk")
+	if err != nil {
+		// TODO handle error
+		logger.Printf("Failed to initialize storage: " + err.Error())
+	}
 	s := &dataServer{
-		replicaID:              replicaID,
-		replicaCount:           replicaCount,
-		shardID:                shardID,
-		lastCommittedCut:       make(order.CommittedCut),
-		isFinalized:            false,
-		stableStorage:          &fs,
-		serverBuffers:          make([][]Record, replicaCount),
-		mu:                     sync.RWMutex{},
-		shardServers:           shardPods,
-		kubeClient:             clientset,
-		clientSubs:             make([]*clientSubscription, 100),
-		clientSubsMutex:        sync.RWMutex{},
-		newClientSubsChan:      make(chan *clientSubscription),
-		clientSubsResponseChan: make(chan int32),
-		committedRecords:       make(map[int32]string, 100), // TODO: load initial capacity from config
+		replicaID:        replicaID,
+		replicaCount:     replicaCount,
+		shardID:          shardID,
+		lastCommittedCut: make(order.CommittedCut),
+		isFinalized:      false,
+		disk:             disk,
+		serverBuffers:    make([][]Record, replicaCount),
+		mu:               sync.RWMutex{},
+		shardServers:     shardPods,
+		kubeClient:       clientset,
 	}
 	s.setupOrderLayerComunication()
 	go s.respondToClientSubs()
@@ -312,10 +312,12 @@ func (server *dataServer) receiveFinalizedCuts(stream om.Order_ReportClient, sen
 					numLogs := int(r - offset)
 					for i := 0; i < numLogs; i++ {
 						server.mu.Lock()
+						err := server.disk.Commit(server.serverBuffers[idx][int(offset)+i].lsn, int64(cutGSN))
+						if err != nil {
+							// TODO handle error
+							logger.Printf(err.Error())
+						}
 						server.serverBuffers[idx][int(offset)+i].gsn = cutGSN
-						server.stableStorage.WriteLog(cutGSN, server.serverBuffers[idx][int(offset)+i].record)
-						server.committedRecords[cutGSN] = server.serverBuffers[idx][int(offset)+i].record
-						server.clientSubsResponseChan <- cutGSN
 						// If you were the one who received this client req, you should respond to it
 						if idx == int(server.replicaID) {
 							server.serverBuffers[idx][int(offset)+i].commitResp <- cutGSN
