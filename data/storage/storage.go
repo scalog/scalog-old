@@ -9,7 +9,7 @@ import (
 	"os"
 	"path"
 
-	"github.com/scalog/scalog/logger"
+	log "github.com/scalog/scalog/logger"
 )
 
 /*
@@ -102,7 +102,7 @@ of storage for creating partitions and writing to them.
 func NewStorage(storagePath string) (*Storage, error) {
 	storageErr := os.MkdirAll(storagePath, os.ModePerm)
 	if storageErr != nil {
-		logger.Printf(storageErr.Error())
+		log.Printf(storageErr.Error())
 		return nil, storageErr
 	}
 	s := &Storage{
@@ -113,7 +113,7 @@ func NewStorage(storagePath string) (*Storage, error) {
 	}
 	_, partitionErr := s.addPartition()
 	if partitionErr != nil {
-		logger.Printf(partitionErr.Error())
+		log.Printf(partitionErr.Error())
 		return nil, partitionErr
 	}
 	return s, nil
@@ -126,7 +126,7 @@ func (s *Storage) Write(record string) (int64, error) {
 	lsn := s.nextLSN
 	err := s.writeToPartition(s.nextPartitionID-1, lsn, record)
 	if err != nil {
-		logger.Printf(err.Error())
+		log.Printf(err.Error())
 		return -1, err
 	}
 	s.nextLSN++
@@ -139,7 +139,7 @@ ReadLSN reads an entry with local sequence number [lsn] from the default partiti
 func (s *Storage) ReadLSN(lsn int64) (string, error) {
 	record, err := s.readLSNFromPartition(s.nextPartitionID-1, lsn)
 	if err != nil {
-		logger.Printf(err.Error())
+		log.Printf(err.Error())
 		return "", err
 	}
 	return record, nil
@@ -151,7 +151,7 @@ ReadGSN reads an entry with global sequence number [gsn] from the default partit
 func (s *Storage) ReadGSN(gsn int64) (string, error) {
 	record, err := s.readGSNFromPartition(s.nextPartitionID-1, gsn)
 	if err != nil {
-		logger.Printf(err.Error())
+		log.Printf(err.Error())
 		return "", err
 	}
 	return record, nil
@@ -164,7 +164,7 @@ Commit writes an entry with local sequence number [lsn] and global sequence numb
 func (s *Storage) Commit(lsn int64, gsn int64) error {
 	err := s.commitToPartition(s.nextPartitionID-1, lsn, gsn)
 	if err != nil {
-		logger.Printf(err.Error())
+		log.Printf(err.Error())
 		return err
 	}
 	return nil
@@ -178,14 +178,14 @@ func (s *Storage) Sync() error {
 		if p.activeSegment != nil {
 			segmentErr := p.activeSegment.sync()
 			if segmentErr != nil {
-				logger.Printf(segmentErr.Error())
+				log.Printf(segmentErr.Error())
 				return segmentErr
 			}
 		}
 		if p.activeGlobalIndex != nil {
 			globalIndexErr := p.activeGlobalIndex.sync()
 			if globalIndexErr != nil {
-				logger.Printf(globalIndexErr.Error())
+				log.Printf(globalIndexErr.Error())
 				return globalIndexErr
 			}
 		}
@@ -471,12 +471,12 @@ func (g *globalIndex) finalize() error {
 func (g *globalIndex) sync() error {
 	flushErr := g.globalIndexWriter.Flush()
 	if flushErr != nil {
-		logger.Printf(flushErr.Error())
+		log.Printf(flushErr.Error())
 		return flushErr
 	}
 	syncErr := g.globalIndex.Sync()
 	if syncErr != nil {
-		logger.Printf(syncErr.Error())
+		log.Printf(syncErr.Error())
 		return syncErr
 	}
 	return nil
@@ -598,7 +598,7 @@ func newLogEntry(record string) string {
 	}
 	out, err := json.Marshal(l)
 	if err != nil {
-		logger.Printf(err.Error())
+		log.Printf(err.Error())
 	}
 	return string(out)
 }
