@@ -152,6 +152,7 @@ func newDataServer() *dataServer {
 		mu:               sync.RWMutex{},
 		shardServers:     shardPods,
 		kubeClient:       clientset,
+		committedRecords: make(map[int32]string),
 	}
 	s.setupOrderLayerComunication()
 	go s.respondToClientSubs()
