@@ -96,3 +96,15 @@ func (server *dataServer) Trim(c context.Context, req *pb.TrimRequest) (*pb.Trim
 	}
 	return &pb.TrimResponse{}, nil
 }
+
+func (server *dataServer) Read(c context.Context, req *pb.ReadRequest) (*pb.ReadResponse, error) {
+	if record, in := server.committedRecords[req.Gsn]; in {
+		return &pb.ReadResponse{Record: record}, nil
+	}
+	record, err := server.disk.ReadGSN(int64(req.Gsn))
+	if err != nil {
+		logger.Printf("Failed to read record with GSN %d", req.Gsn)
+		return nil, err
+	}
+	return &pb.ReadResponse{Record: record}, nil
+}
