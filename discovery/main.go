@@ -57,10 +57,10 @@ func (ds *discoveryServer) DiscoverServers(ctx context.Context, req *rpc.Discove
 			return nil, errors.New("expected only a single port service for each data server")
 		}
 		serviceIPs[i] = &rpc.DataServer{
-			ServerID: int32(serverID),
-			ShardID:  int32(shardID),
 			Port:     service.Spec.Ports[0].NodePort,
 			Ip:       service.Spec.ClusterIP,
+			ServerID: int32(serverID),
+			ShardID:  int32(shardID),
 		}
 	}
 	resp := &rpc.DiscoverResponse{

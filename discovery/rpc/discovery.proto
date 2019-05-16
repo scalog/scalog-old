@@ -18,8 +18,8 @@ message DiscoverResponse {
 }
 
 message DataServer {
-	int32 serverID = 1;
-	int32 shardID = 2;
-	int32 port = 3;
-	string ip = 4;
+	int32 port = 1;
+	string ip = 2;
+	int32 serverID = 3;
+	int32 shardID = 4;
 }
