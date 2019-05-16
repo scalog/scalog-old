@@ -318,6 +318,7 @@ func (server *dataServer) receiveFinalizedCuts(stream om.Order_ReportClient, sen
 							logger.Printf(err.Error())
 						}
 						server.serverBuffers[idx][int(offset)+i].gsn = cutGSN
+						server.committedRecords[cutGSN] = server.serverBuffers[idx][int(offset)+i].record
 						// If you were the one who received this client req, you should respond to it
 						if idx == int(server.replicaID) {
 							server.serverBuffers[idx][int(offset)+i].commitResp <- cutGSN

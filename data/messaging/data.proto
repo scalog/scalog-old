@@ -13,6 +13,8 @@ service Data {
 	rpc Subscribe (SubscribeRequest) returns (stream SubscribeResponse) {}
 
 	rpc Trim (TrimRequest) returns (TrimResponse) {}
+
+	rpc Read (ReadRequest) returns (ReadResponse) {}
 }
 
 message AppendRequest {
@@ -48,3 +50,11 @@ message TrimRequest {
 }
 
 message TrimResponse {}
+
+message ReadRequest {
+	int32 gsn = 1;
+}
+
+message ReadResponse {
+	string record = 1;
+}
