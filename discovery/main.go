@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strconv"
+	"strings"
 
 	"github.com/scalog/scalog/discovery/rpc"
 	"github.com/scalog/scalog/internal/pkg/kube"
@@ -38,14 +40,27 @@ func (ds *discoveryServer) DiscoverServers(ctx context.Context, req *rpc.Discove
 	if err != nil {
 		log.Panicf(err.Error())
 	}
-	serviceIPs := make([]*rpc.DataServerAddress, len(services.Items))
+	serviceIPs := make([]*rpc.DataServer, len(services.Items))
 	for i, service := range services.Items {
+		parts := strings.Split(service.Name, "-")
+		serverID, err := strconv.ParseInt(parts[len(parts)-1], 10, 32)
+		if err != nil {
+			log.Printf(err.Error())
+			return nil, err
+		}
+		shardID, err := strconv.ParseInt(parts[len(parts)-2], 10, 32)
+		if err != nil {
+			log.Printf(err.Error())
+			return nil, err
+		}
 		if len(service.Spec.Ports) != 1 {
 			return nil, errors.New("expected only a single port service for each data server")
 		}
-		serviceIPs[i] = &rpc.DataServerAddress{
-			Port: service.Spec.Ports[0].NodePort,
-			Ip:   service.Spec.ClusterIP,
+		serviceIPs[i] = &rpc.DataServer{
+			ServerID: int32(serverID),
+			ShardID:  int32(shardID),
+			Port:     service.Spec.Ports[0].NodePort,
+			Ip:       service.Spec.ClusterIP,
 		}
 	}
 	resp := &rpc.DiscoverResponse{

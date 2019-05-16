@@ -5,8 +5,7 @@ package rpc;
 /*
 gRPC for Discovery of Scalog
 
-Queries should return a list of IP addresses pointing at the stable external IP's 
-available for each pod in the data layer of Scalog. 
+Queries should return the list of live data servers of Scalog. 
 */
 service Discovery {
 	rpc DiscoverServers (DiscoverRequest) returns (DiscoverResponse) {}
@@ -15,10 +14,12 @@ service Discovery {
 message DiscoverRequest {}
 
 message DiscoverResponse {
-	repeated DataServerAddress servers = 1;
+	repeated DataServer servers = 1;
 }
 
-message DataServerAddress {
-	int32 port = 1;
-	string ip = 2;
+message DataServer {
+	int32 serverID = 1;
+	int32 shardID = 2;
+	int32 port = 3;
+	string ip = 4;
 }
