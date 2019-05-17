@@ -280,6 +280,8 @@ func (server *dataServer) receiveFinalizedCuts(stream om.Order_ReportClient, sen
 			return
 		}
 
+		go server.updateBehindClientSubs(in.StartGSN)
+
 		// So we have to do this in sorted order -- sort the keys and then
 		// lexicographically start incrementing the gsn until we find this shard
 		shardIDs := make([]int, len(in.CommitedCuts))
@@ -317,7 +319,7 @@ func (server *dataServer) receiveFinalizedCuts(stream om.Order_ReportClient, sen
 					numLogs := int(r - offset)
 					for i := 0; i < numLogs; i++ {
 						server.mu.Lock()
-						err := server.disk.Commit(server.serverBuffers[idx][int(offset)+i].lsn, int64(cutGSN))
+						// err := server.disk.Commit(server.serverBuffers[idx][int(offset)+i].lsn, int64(cutGSN))
 						if err != nil {
 							// TODO handle error
 							logger.Printf(err.Error())
@@ -360,21 +362,35 @@ func (server *dataServer) handleNewClientSubs() {
 		server.clientSubsMutex.Lock()
 		server.clientSubs = append(server.clientSubs, clientSub)
 		server.clientSubsMutex.Unlock()
-		go server.updateBehindClientSub(clientSub)
 	}
+}
+
+func (server *dataServer) updateBehindClientSubs(gsn int32) {
+	server.clientSubsMutex.Lock()
+	for _, clientSub := range server.clientSubs {
+		if clientSub == nil {
+			continue
+		}
+		if clientSub.state == BEHIND {
+			clientSub.firstNewGsn = gsn
+			server.updateBehindClientSub(clientSub)
+			clientSub.state = UPDATED
+		}
+	}
+	server.clientSubsMutex.Unlock()
 }
 
 /*
 	Responds to a client with past committed records.
 */
 func (server *dataServer) updateBehindClientSub(clientSub *clientSubscription) {
-	for currGsn := clientSub.startGsn; ; currGsn++ {
-		if clientSub.state == CLOSED || (clientSub.state == UPDATED && currGsn >= clientSub.firstNewGsn) {
+	for currGsn := clientSub.startGsn; currGsn <= clientSub.firstNewGsn; currGsn++ {
+		if clientSub.state == CLOSED {
 			return
 		}
 		record, in := server.committedRecords[currGsn]
 		if !in {
-			break
+			continue
 		}
 		resp := messaging.SubscribeResponse{
 			Gsn:    currGsn,
@@ -382,7 +398,6 @@ func (server *dataServer) updateBehindClientSub(clientSub *clientSubscription) {
 		}
 		clientSub.respChan <- resp
 	}
-	clientSub.state = UPDATED
 }
 
 /*
