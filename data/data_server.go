@@ -142,17 +142,21 @@ func newDataServer() *dataServer {
 		logger.Printf("Failed to initialize storage: " + err.Error())
 	}
 	s := &dataServer{
-		replicaID:        replicaID,
-		replicaCount:     replicaCount,
-		shardID:          shardID,
-		lastCommittedCut: make(order.CommittedCut),
-		isFinalized:      false,
-		disk:             disk,
-		serverBuffers:    make([][]Record, replicaCount),
-		mu:               sync.RWMutex{},
-		shardServers:     shardPods,
-		kubeClient:       clientset,
-		committedRecords: make(map[int32]string),
+		replicaID:              replicaID,
+		replicaCount:           replicaCount,
+		shardID:                shardID,
+		lastCommittedCut:       make(order.CommittedCut),
+		isFinalized:            false,
+		disk:                   disk,
+		serverBuffers:          make([][]Record, replicaCount),
+		mu:                     sync.RWMutex{},
+		shardServers:           shardPods,
+		kubeClient:             clientset,
+		clientSubs:             make([]*clientSubscription, 10),
+		clientSubsMutex:        sync.RWMutex{},
+		newClientSubsChan:      make(chan *clientSubscription),
+		clientSubsResponseChan: make(chan int32),
+		committedRecords:       make(map[int32]string),
 	}
 	s.setupOrderLayerComunication()
 	go s.respondToClientSubs()
@@ -325,6 +329,7 @@ func (server *dataServer) receiveFinalizedCuts(stream om.Order_ReportClient, sen
 							server.serverBuffers[idx][int(offset)+i].commitResp <- cutGSN
 						}
 						server.mu.Unlock()
+						server.clientSubsResponseChan <- cutGSN
 						cutGSN++
 					}
 				}
@@ -387,7 +392,10 @@ func (server *dataServer) respondToClientSubs() {
 	for gsn := range server.clientSubsResponseChan {
 		server.clientSubsMutex.Lock()
 		for _, clientSub := range server.clientSubs {
-			if clientSub.state != CLOSED {
+			if clientSub == nil {
+				continue
+			}
+			if clientSub.state != CLOSED && gsn >= clientSub.startGsn {
 				go server.respondToClientSub(clientSub, gsn)
 			}
 		}
