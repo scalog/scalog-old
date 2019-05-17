@@ -332,7 +332,11 @@ func (server *dataServer) receiveFinalizedCuts(stream om.Order_ReportClient, sen
 			}
 			// Update the gsn
 			for i, r := range currentShardCut {
-				diff := r - server.lastCommittedCut[int32(shardID)].Cut[i]
+				cut, in := server.lastCommittedCut[int32(shardID)]
+				if !in {
+					continue
+				}
+				diff := r - cut.Cut[i]
 				cutGSN += diff
 			}
 		}
