@@ -319,10 +319,12 @@ func (server *dataServer) receiveFinalizedCuts(stream om.Order_ReportClient, sen
 					numLogs := int(r - offset)
 					for i := 0; i < numLogs; i++ {
 						server.mu.Lock()
-						// err := server.disk.Commit(server.serverBuffers[idx][int(offset)+i].lsn, int64(cutGSN))
-						if err != nil {
-							// TODO handle error
-							logger.Printf(err.Error())
+						if idx == int(server.replicaID) {
+							err := server.disk.Commit(server.serverBuffers[idx][int(offset)+i].lsn, int64(cutGSN))
+							if err != nil {
+								// TODO handle error
+								logger.Printf(err.Error())
+							}
 						}
 						server.serverBuffers[idx][int(offset)+i].gsn = cutGSN
 						server.committedRecords[cutGSN] = server.serverBuffers[idx][int(offset)+i].record
