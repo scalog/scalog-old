@@ -391,6 +391,22 @@ func (p *partition) getGlobalIndexContainingGSN(gsn int64) (*globalIndex, error)
 	return nil, fmt.Errorf("Failed to find global index containing gsn %d", gsn)
 }
 
+func (p *partition) getClosestGlobalIndexContainingGSN(gsn int64) (*globalIndex, bool, error) {
+	closest := int64(-1)
+	for startGsn := range p.globalIndexes {
+		if gsn >= startGsn {
+			if gsn < startGsn+int64(p.maxSegmentSize) {
+				return p.globalIndexes[startGsn], true, nil
+			}
+			closest = max(closest, startGsn)
+		}
+	}
+	if closest != -1 {
+		return p.globalIndexes[closest], false, nil
+	}
+	return nil, false, fmt.Errorf("Failed to find global index containing gsn %d", gsn)
+}
+
 func getBaseOffsetAndPositionOfGSN(globalIndexPath string, gsn int64, startGsn int64) (int64, int32, error) {
 	buffer, err := ioutil.ReadFile(globalIndexPath)
 	if err != nil {
@@ -477,7 +493,7 @@ func (s *Storage) deleteFromPartition(partitionID int32, gsn int64) error {
 	if !in {
 		return fmt.Errorf("Attempted to delete from non-existant partition %d", partitionID)
 	}
-	g, err := p.getGlobalIndexContainingGSN(gsn)
+	g, in, err := p.getClosestGlobalIndexContainingGSN(gsn)
 	if err != nil {
 		return err
 	}
@@ -485,9 +501,17 @@ func (s *Storage) deleteFromPartition(partitionID int32, gsn int64) error {
 	if err != nil {
 		return err
 	}
-	baseOffset, _, err := getBaseOffsetAndPositionOfGSN(g.globalIndex.Name(), gsn, g.startGsn)
-	if err != nil {
-		return err
+	var baseOffset int64
+	if in {
+		baseOffset, _, err = getBaseOffsetAndPositionOfGSN(g.globalIndex.Name(), gsn, g.startGsn)
+		if err != nil {
+			return err
+		}
+	} else {
+		baseOffset, err = g.getClosestBaseOffsetOfGSN(gsn)
+		if err != nil {
+			return err
+		}
 	}
 	err = p.deleteSegments(baseOffset)
 	if err != nil {
@@ -504,13 +528,34 @@ func (p *partition) deleteGlobalIndexes(threshold int64) error {
 			if err != nil {
 				return err
 			}
+			trimmed = append(trimmed, startGsn)
 		}
-		trimmed = append(trimmed, startGsn)
 	}
 	for _, startGsn := range trimmed {
 		delete(p.globalIndexes, startGsn)
 	}
 	return nil
+}
+
+func (g *globalIndex) getClosestBaseOffsetOfGSN(gsn int64) (int64, error) {
+	buffer, err := ioutil.ReadFile(g.globalIndex.Name())
+	if err != nil {
+		return -1, err
+	}
+	closest := int64(-1)
+	left := 0
+	right := len(buffer) / 16
+	for left < right {
+		target := left + ((right - left) / 2)
+		targetGsn := int64(binary.LittleEndian.Uint32(buffer[target*16:])) + g.startGsn
+		if gsn > targetGsn {
+			left = target
+		} else {
+			right = target
+		}
+	}
+	return closest, nil
+
 }
 
 func (p *partition) deleteSegments(threshold int64) error {
@@ -691,4 +736,11 @@ func getLogName(baseOffset int64) string {
 
 func getLocalIndexName(baseOffset int64) string {
 	return fmt.Sprintf("%019d%s", baseOffset, localIndexSuffix)
+}
+
+func max(a, b int64) int64 {
+	if a < b {
+		return b
+	}
+	return a
 }
