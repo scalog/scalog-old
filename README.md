@@ -2,7 +2,22 @@
 
 [![Build Status](https://travis-ci.org/scalog/scalog.svg?branch=master)](https://travis-ci.org/scalog/scalog)
 
-## Setup
+Scalog is an ongoing research venture, striving to create a high throughput and easily reconfigurable totally ordered shared log.
+
+## Quickstart
+
+The easiest way to bootstrap a bare metal computing cluster with scalog is:
+ 
+1. Clone this repository on the desired machines
+2. cd into this repository and then run `cd deploy`
+3. Run the bootstrapping scripts by executing `chmod +x bootstrap-scalog.sh && ./bootstrap-scalog` or `bash bootstrap-scalog.sh`
+
+After following the prompts from the scripts, the bootstrapping script should install `kubeadm` and `docker`, 
+bootstrap a kubernetes cluster, and then start a small sample instance of Scalog on that cluster.
+
+If for whatever reason you would like to see the outputs of each command executed in the script, run `debug-bootstrap-scalog.sh` instead.
+
+## Developing on Scalog
 The following assumes you're running a Unix based machine (Linux/Mac). These are also written by David in retrospect after he's installed everything so some steps might be missing.
 
 ### Installing Go
@@ -60,6 +75,3 @@ Run (in scalog's main directory)
 ```sh
 ./genpb.sh
 ```
-
-## Running Scalog
-This project is a work in progress. While the kubernetes operator is being implemented, Scalog can be run using a series of scripts. 
