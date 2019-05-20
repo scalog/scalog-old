@@ -62,7 +62,7 @@ func (ds *discoveryServer) DiscoverServers(ctx context.Context, req *rpc.Discove
 			Ip:       service.Spec.ClusterIP,
 		}
 		if servers, in := serversByShardID[int32(shardID)]; in {
-			servers = append(servers, server)
+			serversByShardID[int32(shardID)] = append(servers, server)
 		} else {
 			servers := []*rpc.DataServer{server}
 			serversByShardID[int32(shardID)] = servers
