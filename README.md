@@ -1,4 +1,6 @@
-# scalog
+# Scalog: A Scalable, Totally Ordered Shared Log
+
+[![Build Status](https://travis-ci.org/scalog/scalog.svg?branch=master)](https://travis-ci.org/scalog/scalog)
 
 ## Setup
 The following assumes you're running a Unix based machine (Linux/Mac). These are also written by David in retrospect after he's installed everything so some steps might be missing.
