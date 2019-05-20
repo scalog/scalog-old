@@ -45,12 +45,10 @@ func (ds *discoveryServer) DiscoverServers(ctx context.Context, req *rpc.Discove
 		parts := strings.Split(service.Name, "-")
 		shardID, err := strconv.ParseInt(parts[len(parts)-2], 10, 32)
 		if err != nil {
-			log.Printf(err.Error())
 			return nil, err
 		}
 		serverID, err := strconv.ParseInt(parts[len(parts)-1], 10, 32)
 		if err != nil {
-			log.Printf(err.Error())
 			return nil, err
 		}
 		if len(service.Spec.Ports) != 1 {
@@ -61,20 +59,16 @@ func (ds *discoveryServer) DiscoverServers(ctx context.Context, req *rpc.Discove
 			Port:     service.Spec.Ports[0].NodePort,
 			Ip:       service.Spec.ClusterIP,
 		}
-		if servers, in := serversByShardID[int32(shardID)]; in {
-			serversByShardID[int32(shardID)] = append(servers, server)
-		} else {
-			servers := []*rpc.DataServer{server}
-			serversByShardID[int32(shardID)] = servers
-		}
+		serversByShardID[int32(shardID)] = append(serversByShardID[int32(shardID)], server)
 	}
-	shards := make([]*rpc.Shard, len(serversByShardID))
+	shards, shardsIndex := make([]*rpc.Shard, len(serversByShardID)), 0
 	for shardID, servers := range serversByShardID {
 		shard := &rpc.Shard{
 			ShardID: shardID,
 			Servers: servers,
 		}
-		shards = append(shards, shard)
+		shards[shardsIndex] = shard
+		shardsIndex++
 	}
 	resp := &rpc.DiscoverResponse{
 		Shards: shards,
