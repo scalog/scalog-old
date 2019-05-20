@@ -57,8 +57,9 @@ func connectToLiveCluster(address string) {
 	if error != nil {
 		panic(error)
 	}
-	for _, s := range resp.Servers {
-		appendToShard(fmt.Sprintf("130.127.133.35:%d", s.Port))
+	for _, s := range resp.Shards {
+		// Append to first replica within a shard
+		appendToShard(fmt.Sprintf("130.127.133.35:%d", s.Servers[0].Port))
 		break
 	}
 	conn.Close()
