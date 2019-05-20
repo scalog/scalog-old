@@ -14,12 +14,16 @@ service Discovery {
 message DiscoverRequest {}
 
 message DiscoverResponse {
-	repeated DataServer servers = 1;
+	repeated Shard shards = 1;
+}
+
+message Shard {
+	int32 shardID = 1;
+	repeated DataServer servers = 2;
 }
 
 message DataServer {
-	int32 port = 1;
-	string ip = 2;
-	int32 serverID = 3;
-	int32 shardID = 4;
+	int32 serverID = 1;
+	int32 port = 2;
+	string ip = 3;
 }

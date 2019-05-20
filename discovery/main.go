@@ -40,15 +40,15 @@ func (ds *discoveryServer) DiscoverServers(ctx context.Context, req *rpc.Discove
 	if err != nil {
 		log.Panicf(err.Error())
 	}
-	serviceIPs := make([]*rpc.DataServer, len(services.Items))
-	for i, service := range services.Items {
+	serversByShardID := make(map[int32][]*rpc.DataServer)
+	for _, service := range services.Items {
 		parts := strings.Split(service.Name, "-")
-		serverID, err := strconv.ParseInt(parts[len(parts)-1], 10, 32)
+		shardID, err := strconv.ParseInt(parts[len(parts)-2], 10, 32)
 		if err != nil {
 			log.Printf(err.Error())
 			return nil, err
 		}
-		shardID, err := strconv.ParseInt(parts[len(parts)-2], 10, 32)
+		serverID, err := strconv.ParseInt(parts[len(parts)-1], 10, 32)
 		if err != nil {
 			log.Printf(err.Error())
 			return nil, err
@@ -56,15 +56,28 @@ func (ds *discoveryServer) DiscoverServers(ctx context.Context, req *rpc.Discove
 		if len(service.Spec.Ports) != 1 {
 			return nil, errors.New("expected only a single port service for each data server")
 		}
-		serviceIPs[i] = &rpc.DataServer{
+		server := &rpc.DataServer{
+			ServerID: int32(serverID),
 			Port:     service.Spec.Ports[0].NodePort,
 			Ip:       service.Spec.ClusterIP,
-			ServerID: int32(serverID),
-			ShardID:  int32(shardID),
+		}
+		if servers, in := serversByShardID[int32(shardID)]; in {
+			servers = append(servers, server)
+		} else {
+			servers := []*rpc.DataServer{server}
+			serversByShardID[int32(shardID)] = servers
 		}
 	}
+	shards := make([]*rpc.Shard, len(serversByShardID))
+	for shardID, servers := range serversByShardID {
+		shard := &rpc.Shard{
+			ShardID: shardID,
+			Servers: servers,
+		}
+		shards = append(shards, shard)
+	}
 	resp := &rpc.DiscoverResponse{
-		Servers: serviceIPs,
+		Shards: shards,
 	}
 	return resp, nil
 }
