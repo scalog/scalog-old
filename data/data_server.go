@@ -70,6 +70,10 @@ type dataServer struct {
 	replicaCount int
 	// Shard ID
 	shardID int32
+	// Version of the server's view
+	viewID int32
+	// Mutex for viewID
+	viewMu sync.RWMutex
 	// lastComittedCut is the last batch recieved from the ordering layer
 	lastCommittedCut order.CommittedCut
 	// True if this replica has been finalized
@@ -145,6 +149,8 @@ func newDataServer() *dataServer {
 		replicaID:              replicaID,
 		replicaCount:           replicaCount,
 		shardID:                shardID,
+		viewID:                 0, // TODO RYAN: viewID should be set on server init
+		viewMu:                 sync.RWMutex{},
 		lastCommittedCut:       make(order.CommittedCut),
 		isFinalized:            false,
 		disk:                   disk,
@@ -394,10 +400,13 @@ func (server *dataServer) updateBehindClientSub(clientSub *clientSubscription) {
 		if !in {
 			continue
 		}
+		server.viewMu.RLock()
 		resp := messaging.SubscribeResponse{
 			Gsn:    currGsn,
 			Record: record,
+			ViewID: server.viewID
 		}
+		server.viewMu.RUnlock()
 		clientSub.respChan <- resp
 	}
 }
@@ -429,10 +438,13 @@ func (server *dataServer) respondToClientSub(clientSub *clientSubscription, gsn 
 		clientSub.state = UPDATED
 	}
 	record := server.committedRecords[gsn]
+	server.viewMu.RLock()
 	resp := messaging.SubscribeResponse{
 		Gsn:    gsn,
 		Record: record,
+		ViewID: server.viewID
 	}
+	server.viewMu.RUnlock()
 	clientSub.respChan <- resp
 }
 

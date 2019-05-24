@@ -26,6 +26,7 @@ message AppendRequest {
 message AppendResponse {
 	int32 csn = 1;
 	int32 gsn = 2;
+	int32 viewID = 3;
 }
 
 message ReplicateRequest {
@@ -43,13 +44,16 @@ message SubscribeRequest {
 message SubscribeResponse {
 	int32 gsn = 1;
 	string record = 2;
+	int32 viewID = 3;
 }
 
 message TrimRequest {
 	int32 gsn = 1;
 }
 
-message TrimResponse {}
+message TrimResponse {
+	int32 viewID = 1;
+}
 
 message ReadRequest {
 	int32 gsn = 1;
@@ -57,4 +61,5 @@ message ReadRequest {
 
 message ReadResponse {
 	string record = 1;
+	int32 viewID = 2;
 }

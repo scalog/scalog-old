@@ -43,7 +43,14 @@ func (server *dataServer) Append(c context.Context, req *pb.AppendRequest) (*pb.
 	if !ok {
 		return nil, errors.New("append request failed due to shard finalization. Please retry the append operation at a different shard")
 	}
-	return &pb.AppendResponse{Csn: r.csn, Gsn: gsn}, nil
+	server.viewMu.RLock()
+	resp := &pb.AppendResponse{
+		Csn:    r.csn,
+		Gsn:    gsn,
+		ViewID: server.viewID,
+	}
+	server.viewMu.RUnlock()
+	return resp, nil
 }
 
 func (server *dataServer) Replicate(stream pb.Data_ReplicateServer) error {
@@ -94,7 +101,10 @@ func (server *dataServer) Trim(c context.Context, req *pb.TrimRequest) (*pb.Trim
 		logger.Printf("Failed to trim starting at GSN %d", req.Gsn)
 		return nil, err
 	}
-	return &pb.TrimResponse{}, nil
+	server.viewMu.RLock()
+	resp := &pb.TrimResponse{ViewID: server.viewID}
+	server.viewMu.RUnlock()
+	return resp, nil
 }
 
 func (server *dataServer) Read(c context.Context, req *pb.ReadRequest) (*pb.ReadResponse, error) {
@@ -106,5 +116,11 @@ func (server *dataServer) Read(c context.Context, req *pb.ReadRequest) (*pb.Read
 		logger.Printf("Failed to read record with GSN %d", req.Gsn)
 		return nil, err
 	}
-	return &pb.ReadResponse{Record: record}, nil
+	server.viewMu.RLock()
+	resp := &pb.ReadResponse{
+		Record: record,
+		ViewID: server.viewID,
+	}
+	server.viewMu.RUnlock()
+	return resp, nil
 }
