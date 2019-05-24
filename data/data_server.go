@@ -404,7 +404,7 @@ func (server *dataServer) updateBehindClientSub(clientSub *clientSubscription) {
 		resp := messaging.SubscribeResponse{
 			Gsn:    currGsn,
 			Record: record,
-			ViewID: server.viewID
+			ViewID: server.viewID,
 		}
 		server.viewMu.RUnlock()
 		clientSub.respChan <- resp
@@ -442,7 +442,7 @@ func (server *dataServer) respondToClientSub(clientSub *clientSubscription, gsn 
 	resp := messaging.SubscribeResponse{
 		Gsn:    gsn,
 		Record: record,
-		ViewID: server.viewID
+		ViewID: server.viewID,
 	}
 	server.viewMu.RUnlock()
 	clientSub.respChan <- resp
