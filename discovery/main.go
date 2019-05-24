@@ -13,6 +13,8 @@ import (
 	log "github.com/scalog/scalog/logger"
 	"github.com/spf13/viper"
 	"google.golang.org/grpc"
+	health "google.golang.org/grpc/health"
+	healthgrpc "google.golang.org/grpc/health/grpc_health_v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 )
@@ -25,6 +27,13 @@ func Start() {
 		log.Fatalf("failed to listen: %v", err)
 	}
 	grpcServer := grpc.NewServer()
+
+	// TODO: For more fine tuned health checking, we should pass the health server into the data serve r
+	// so we can update its state with more intimiate details
+	healthServer := health.NewServer()
+	healthServer.Resume()
+	healthgrpc.RegisterHealthServer(grpcServer, healthServer)
+
 	rpc.RegisterDiscoveryServer(grpcServer, newDiscoveryServer())
 	log.Printf("Discovery server available on %d\n", viper.Get("port"))
 	grpcServer.Serve(lis)

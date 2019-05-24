@@ -9,10 +9,11 @@ import (
 	"github.com/scalog/scalog/internal/pkg/golib"
 	"github.com/scalog/scalog/internal/pkg/kube"
 	log "github.com/scalog/scalog/logger"
-
 	"github.com/scalog/scalog/order/messaging"
 	"github.com/spf13/viper"
 	"google.golang.org/grpc"
+	health "google.golang.org/grpc/health"
+	healthgrpc "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/keepalive"
 	"k8s.io/apimachinery/pkg/types"
 )
@@ -29,6 +30,12 @@ func Start() {
 			MaxConnectionIdle: 5 * time.Minute,
 		}),
 	)
+
+	// TODO: For more fine tuned health checking, we should pass the health server into the data serve r
+	// so we can update its state with more intimiate details
+	healthServer := health.NewServer()
+	healthServer.Resume()
+	healthgrpc.RegisterHealthServer(grpcServer, healthServer)
 
 	id, peers := getRaftIndexPeerUrls()
 	// TODO: remove hard coded server shard count
