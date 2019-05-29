@@ -8,7 +8,7 @@ gRPC for Order layer of Scalog
 service Order {
     rpc Report(stream ReportRequest) returns (stream ReportResponse) {}
 
-    rpc Register(RegisterRequest) returns (RegisterResponse) {}
+    rpc Forward(stream ReportRequest) returns (stream ReportResponse) {}
 
     rpc Finalize(FinalizeRequest) returns (FinalizeResponse) {}
 }
@@ -41,18 +41,9 @@ message ReportResponse {
     repeated int32 finalize = 3;
 }
 
-message RegisterRequest {
-    int32 shardID = 1;
-    int32 replicaID = 2;
-}
-
-message RegisterResponse {}
-
 message FinalizeRequest {
     // Array of shards to finalize after k cuts
     map<int32, int32> shards = 1;
 }
 
 message FinalizeResponse {}
-
-// Finalize needs to be sent from shards or from ordering? Client application that can manually finalize.

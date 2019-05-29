@@ -35,8 +35,9 @@ func (server *orderServer) Report(stream pb.Order_ReportServer) error {
 	}
 }
 
-func (server *orderServer) Register(ctx context.Context, req *pb.RegisterRequest) (*pb.RegisterResponse, error) {
-	return nil, nil
+func (server *orderServer) Forward(stream pb.Order_ForwardServer) error {
+	// TODO
+	return nil
 }
 
 func (server *orderServer) Finalize(ctx context.Context, req *pb.FinalizeRequest) (*pb.FinalizeResponse, error) {
