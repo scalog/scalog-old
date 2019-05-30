@@ -1,10 +1,15 @@
 package order
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"math"
+	"strings"
 	"sync"
 	"time"
+
+	"go.etcd.io/etcd/raft"
 
 	"github.com/spf13/viper"
 
@@ -52,6 +57,7 @@ type orderServer struct {
 	finalizationResponseChannels FinalizationResponseChannels
 	aggregatorResponseChannels   ResponseChannels
 	rc                           *raftNode
+	forwardStream                pb.Order_ForwardClient
 }
 
 // Fields in orderServer necessary for state replication. Used in Raft.
@@ -75,6 +81,24 @@ func newOrderServer(shardIds *golib.Set, numServersPerShard int) *orderServer {
 		aggregatorResponseChannels:   make(ResponseChannels, 0),
 		finalizationResponseChannels: make(FinalizationResponseChannels),
 	}
+}
+
+func (server *orderServer) setupForwardStream() error {
+	server.rc.leaderMu.RLock()
+	leaderID := server.rc.leaderID
+	server.rc.leaderMu.RUnlock()
+	if leaderID == raft.None {
+		return fmt.Errorf("Failed to set up forward stream: no leader exists")
+	}
+	address := strings.TrimPrefix(server.rc.peers[leaderID-1], "http://")
+	conn := golib.ConnectTo(address)
+	client := pb.NewOrderClient(conn)
+	stream, err := client.Forward(context.Background())
+	if err != nil {
+		return err
+	}
+	server.forwardStream = stream
+	return nil
 }
 
 ////////////// INITIALIZERS
@@ -252,10 +276,9 @@ func (server *orderServer) proposalRaftBatch() {
 		if server.rc.node == nil {
 			continue
 		}
-		isLeader := server.rc.leaderID == uint64(server.rc.id)
 
 		//do nothing if you're not the leader
-		if !isLeader {
+		if !server.rc.isLeader() {
 			continue
 		}
 		// propose a batch operation to raft

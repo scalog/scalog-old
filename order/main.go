@@ -43,6 +43,13 @@ func Start() {
 	rc := newRaftNode(id, peers, false, server.getSnapshot)
 	server.rc = rc
 
+	if !server.rc.isLeader() {
+		err = server.setupForwardStream()
+		if err != nil {
+			log.Fatalf(err.Error())
+		}
+	}
+
 	messaging.RegisterOrderServer(grpcServer, server)
 	go server.proposalRaftBatch()
 	go server.listenForRaftCommits()

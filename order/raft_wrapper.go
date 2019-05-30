@@ -500,6 +500,12 @@ func (rc *raftNode) leaderUpdate(softstate *raft.SoftState) {
 	}
 }
 
+func (rc *raftNode) isLeader() bool {
+	rc.leaderMu.RLock()
+	defer rc.leaderMu.RUnlock()
+	return rc.leaderID == uint64(rc.id)
+}
+
 func (rc *raftNode) serveRaft() {
 	url, err := url.Parse(rc.peers[rc.id-1])
 	if err != nil {
