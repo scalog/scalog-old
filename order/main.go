@@ -51,6 +51,7 @@ func Start() {
 	}
 
 	messaging.RegisterOrderServer(grpcServer, server)
+	go server.forwardToLeader()
 	go server.proposalRaftBatch()
 	go server.listenForRaftCommits()
 

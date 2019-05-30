@@ -58,6 +58,7 @@ type orderServer struct {
 	aggregatorResponseChannels   ResponseChannels
 	rc                           *raftNode
 	forwardStream                pb.Order_ForwardClient
+	forwardC                     chan *pb.ReportRequest
 }
 
 // Fields in orderServer necessary for state replication. Used in Raft.
@@ -80,6 +81,7 @@ func newOrderServer(shardIds *golib.Set, numServersPerShard int) *orderServer {
 		mu:                           sync.RWMutex{},
 		aggregatorResponseChannels:   make(ResponseChannels, 0),
 		finalizationResponseChannels: make(FinalizationResponseChannels),
+		forwardC:                     make(chan *pb.ReportRequest),
 	}
 }
 
@@ -261,6 +263,15 @@ func (server *orderServer) reportResponseRoutine(stream pb.Order_ReportServer, r
 		err := stream.Send(&response)
 		if err != nil {
 			logger.Panicf(err.Error())
+		}
+	}
+}
+
+func (server *orderServer) forwardToLeader() {
+	for req := range server.forwardC {
+		err := server.forwardStream.Send(req)
+		if err != nil {
+			logger.Printf(err.Error())
 		}
 	}
 }

@@ -27,17 +27,37 @@ func (server *orderServer) Report(stream pb.Order_ReportServer) error {
 			go server.reportResponseRoutine(stream, req)
 			spawned = true
 		}
-		serializedReq, err := proto.Marshal(req)
-		if err != nil {
-			logger.Panicf(err.Error())
+		if !server.rc.isLeader() {
+			server.forwardC <- req
+		} else {
+			serializedReq, err := proto.Marshal(req)
+			if err != nil {
+				logger.Panicf(err.Error())
+			}
+			server.rc.proposeC <- serializedReq
 		}
-		server.rc.proposeC <- serializedReq
 	}
 }
 
 func (server *orderServer) Forward(stream pb.Order_ForwardServer) error {
-	// TODO
-	return nil
+	for {
+		req, err := stream.Recv()
+		if err == io.EOF {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if !server.rc.isLeader() {
+			server.forwardC <- req
+		} else {
+			serializedReq, err := proto.Marshal(req)
+			if err != nil {
+				logger.Panicf(err.Error())
+			}
+			server.rc.proposeC <- serializedReq
+		}
+	}
 }
 
 func (server *orderServer) Finalize(ctx context.Context, req *pb.FinalizeRequest) (*pb.FinalizeResponse, error) {
