@@ -45,6 +45,24 @@ func (server *orderServer) Forward(stream pb.Order_ForwardServer) error {
 }
 
 func (server *orderServer) Register(req *pb.RegisterRequest, stream pb.Order_RegisterServer) error {
+	resp := &pb.RegisterResponse{ViewID: server.viewID}
+	if err := stream.Send(resp); err != nil {
+		return err
+	}
+	propData, err := proto.Marshal(req)
+	if err != nil {
+		return err
+	}
+	prop := raftProposal{
+		proposalType: REGISTER,
+		proposalData: propData,
+	}
+	server.rc.proposeC <- prop
+	for viewUpdate := range server.viewC {
+		if err := stream.Send(viewUpdate); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

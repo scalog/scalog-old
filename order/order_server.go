@@ -64,6 +64,8 @@ type orderServer struct {
 	finalizationResponseChannels FinalizationResponseChannels
 	aggregatorResponseChannels   ResponseChannels
 	rc                           *raftNode
+	viewID                       int32
+	viewC                        chan *pb.RegisterResponse
 }
 
 // Fields in orderServer necessary for state replication. Used in Raft.
@@ -86,6 +88,8 @@ func newOrderServer(shardIds *golib.Set, numServersPerShard int) *orderServer {
 		mu:                           sync.RWMutex{},
 		aggregatorResponseChannels:   make(ResponseChannels, 0),
 		finalizationResponseChannels: make(FinalizationResponseChannels),
+		viewID:                       0,
+		viewC:                        make(chan *pb.RegisterResponse),
 	}
 }
 
@@ -326,7 +330,9 @@ func (server *orderServer) listenForRaftCommits() {
 		case REPORT:
 			// TODO
 		case REGISTER:
-			// TODO
+			server.viewID++
+			viewUpdate := &pb.RegisterResponse{ViewID: server.viewID}
+			server.viewC <- viewUpdate
 		case FINALIZE:
 			// TODO
 		default:
