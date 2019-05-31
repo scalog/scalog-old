@@ -8,6 +8,8 @@ gRPC for Order layer of Scalog
 service Order {
     rpc Report(stream ReportRequest) returns (stream ReportResponse) {}
 
+    rpc Forward(stream ReportRequest) returns (ReportResponse) {}
+
     rpc Register(RegisterRequest) returns (RegisterResponse) {}
 
     rpc Finalize(FinalizeRequest) returns (FinalizeResponse) {}
@@ -26,10 +28,6 @@ message ShardView {
 message ReportRequest {
     // Key: ShardID, Value: Shard cuts
     map<int32, ShardView> shards = 1;    
-    // Non-nil only if the ordering layer wishes to propose a finalization these particular shards after k cuts
-    map<int32, int32> finalize = 2;
-    // True if this is a request to batch and send the committedcuts
-    bool batch = 3;
 }
 
 message ReportResponse {
@@ -37,8 +35,6 @@ message ReportResponse {
     map<int32, Cut> commitedCuts = 1;
     // GSN to start computing at
     int32 startGSN = 2;
-    // Array of shards that have been finalized in this batch
-    repeated int32 finalize = 3;
 }
 
 message RegisterRequest {
@@ -49,10 +45,10 @@ message RegisterRequest {
 message RegisterResponse {}
 
 message FinalizeRequest {
-    // Array of shards to finalize after k cuts
-    map<int32, int32> shards = 1;
+    int32 shardID = 1;
+    int32 limit = 2;
 }
 
-message FinalizeResponse {}
-
-// Finalize needs to be sent from shards or from ordering? Client application that can manually finalize.
+message FinalizeResponse {
+    int32 shardID = 1;
+}

@@ -203,8 +203,6 @@ func (server *dataServer) sendTentativeCutsToOrder(stream om.Order_ReportClient,
 					},
 				},
 			},
-			Finalize: nil,
-			Batch:    false,
 		}
 		sent = cut
 		stream.Send(reportReq)
@@ -275,16 +273,16 @@ func (server *dataServer) receiveFinalizedCuts(stream om.Order_ReportClient, sen
 			logger.Panicf(err.Error())
 		}
 
-		if server.checkIfFinalized(in.Finalize) {
-			// Stop serving further Append requests
-			server.isFinalized = true
-			// Stop sending tentative cuts to the ordering layer
-			sendTicker.Stop()
-			// Prevent discovery layer from finding this pod ever again
-			server.labelPodAsFinalized()
-			// Upon returning, stop receiving cuts from the ordering layer
-			return
-		}
+		// if server.checkIfFinalized(in.Finalize) {
+		// 	// Stop serving further Append requests
+		// 	server.isFinalized = true
+		// 	// Stop sending tentative cuts to the ordering layer
+		// 	sendTicker.Stop()
+		// 	// Prevent discovery layer from finding this pod ever again
+		// 	server.labelPodAsFinalized()
+		// 	// Upon returning, stop receiving cuts from the ordering layer
+		// 	return
+		// }
 
 		go server.updateBehindClientSubs(in.StartGSN)
 

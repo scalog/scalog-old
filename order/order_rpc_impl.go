@@ -39,6 +39,11 @@ func (server *orderServer) Report(stream pb.Order_ReportServer) error {
 	}
 }
 
+func (server *orderServer) Forward(stream pb.Order_ForwardServer) error {
+	// TODO
+	return nil
+}
+
 func (server *orderServer) Register(ctx context.Context, req *pb.RegisterRequest) (*pb.RegisterResponse, error) {
 	return nil, nil
 }
@@ -49,20 +54,13 @@ func (server *orderServer) Finalize(ctx context.Context, req *pb.FinalizeRequest
 		logger.Printf("Could not marshal finalization request message")
 		return nil, err
 	}
-	// Create finalizationResponseChannels for each shard. We should wait until we hear back from
-	// all of these shards
-	for _, shardID := range req.Shards {
-		server.finalizationResponseChannels[shardID] = make(chan struct{})
-	}
+	server.finalizationResponseChannels[req.ShardID] = make(chan pb.FinalizeResponse)
 	prop := raftProposal{
 		proposalType: FINALIZE,
 		proposalData: propData,
 	}
 	server.rc.proposeC <- prop
-	// Wait for raft to commit the finalization requests before responding
-	for _, shardID := range req.Shards {
-		<-server.finalizationResponseChannels[shardID]
-		delete(server.finalizationResponseChannels, shardID)
-	}
-	return &pb.FinalizeResponse{}, nil
+	resp := <-server.finalizationResponseChannels[req.ShardID]
+	delete(server.finalizationResponseChannels, req.ShardID)
+	return &resp, nil
 }

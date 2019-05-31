@@ -8,7 +8,6 @@ import (
 
 	"github.com/spf13/viper"
 
-	"github.com/gogo/protobuf/proto"
 	"github.com/scalog/scalog/internal/pkg/golib"
 	"github.com/scalog/scalog/logger"
 	pb "github.com/scalog/scalog/order/messaging"
@@ -38,7 +37,7 @@ type FinalizationMap map[int32]int32
 
 // Map<Shard ID, Channels to write responses to when a shard finalization
 // request has been committed>
-type FinalizationResponseChannels map[int32]chan struct{}
+type FinalizationResponseChannels map[int32]chan pb.FinalizeResponse
 
 type raftProposalType int
 
@@ -170,7 +169,6 @@ func (server *orderServer) mergeContestedCuts() {
 	resp := pb.ReportResponse{
 		CommitedCuts: server.committedCut,
 		StartGSN:     server.globalSequenceNum,
-		Finalize:     shardsToFinalize,
 	}
 	for _, ch := range server.aggregatorResponseChannels {
 		ch <- resp
@@ -319,30 +317,35 @@ func (server *orderServer) listenForRaftCommits() {
 			continue
 		}
 
-		req := &pb.ReportRequest{}
-		if err := proto.Unmarshal(entry.Data, req); err != nil {
-			logger.Panicf("Could not unmarshal raft commit message")
+		prop := &raftProposal{}
+		if err := json.Unmarshal(entry.Data, prop); err != nil {
+			logger.Printf(err.Error())
 		}
 
-		// ReportRequests can take two actions -- one is where we decide upon a shard cut.
-		// The other action is if we decide on finalizing a particular shard.
-		if req.Finalize != nil {
-			server.updateFinalizationMap(req.Finalize)
-			server.respondToFinalizeChannels(req.Finalize)
-			continue
-		} else {
-			// Update the global state
-			server.mu.Lock()
-			for shardID, replicaCuts := range req.Shards {
-				for replicaID, cut := range replicaCuts.Replicas {
-					for i := 0; i < server.numServersPerShard; i++ {
-						prior := server.contestedCut[int(shardID)][int(replicaID)][i]
-						server.contestedCut[int(shardID)][int(replicaID)][i] = golib.Max(prior, int(cut.Cut[i]))
-					}
-				}
-			}
-			server.mu.Unlock()
+		switch prop.proposalType {
+		case REPORT:
+			// TODO
+		case REGISTER:
+			// TODO
+		case FINALIZE:
+			// TODO
+		default:
+			// TODO
 		}
+		// Logic to be moved into Forward
+		// else {
+		// 	// Update the global state
+		// 	server.mu.Lock()
+		// 	for shardID, replicaCuts := range req.Shards {
+		// 		for replicaID, cut := range replicaCuts.Replicas {
+		// 			for i := 0; i < server.numServersPerShard; i++ {
+		// 				prior := server.contestedCut[int(shardID)][int(replicaID)][i]
+		// 				server.contestedCut[int(shardID)][int(replicaID)][i] = golib.Max(prior, int(cut.Cut[i]))
+		// 			}
+		// 		}
+		// 	}
+		// 	server.mu.Unlock()
+		// }
 	}
 }
 
