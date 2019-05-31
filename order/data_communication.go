@@ -27,11 +27,15 @@ func (server *orderServer) Report(stream pb.Order_ReportServer) error {
 			go server.reportResponseRoutine(stream, req)
 			spawned = true
 		}
-		serializedReq, err := proto.Marshal(req)
+		propData, err := proto.Marshal(req)
 		if err != nil {
 			logger.Panicf(err.Error())
 		}
-		server.rc.proposeC <- serializedReq
+		prop := raftProposal{
+			proposalType: REPORT,
+			proposalData: propData,
+		}
+		server.rc.proposeC <- prop
 	}
 }
 
@@ -40,12 +44,7 @@ func (server *orderServer) Register(ctx context.Context, req *pb.RegisterRequest
 }
 
 func (server *orderServer) Finalize(ctx context.Context, req *pb.FinalizeRequest) (*pb.FinalizeResponse, error) {
-	proposedShardFinalization := pb.ReportRequest{
-		Shards:   nil,
-		Finalize: req.Shards,
-		Batch:    false,
-	}
-	raftProposal, err := proto.Marshal(&proposedShardFinalization)
+	propData, err := proto.Marshal(req)
 	if err != nil {
 		logger.Printf("Could not marshal finalization request message")
 		return nil, err
@@ -55,7 +54,11 @@ func (server *orderServer) Finalize(ctx context.Context, req *pb.FinalizeRequest
 	for _, shardID := range req.Shards {
 		server.finalizationResponseChannels[shardID] = make(chan struct{})
 	}
-	server.rc.proposeC <- raftProposal
+	prop := raftProposal{
+		proposalType: FINALIZE,
+		proposalData: propData,
+	}
+	server.rc.proposeC <- prop
 	// Wait for raft to commit the finalization requests before responding
 	for _, shardID := range req.Shards {
 		<-server.finalizationResponseChannels[shardID]

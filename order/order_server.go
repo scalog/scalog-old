@@ -271,14 +271,24 @@ func (server *orderServer) proposalRaftBatch() {
 		if !isLeader {
 			continue
 		}
-		// propose a batch operation to raft
-		// TODO: only propose a batch operation if we have seen some change in state?
-		batchReq := &pb.ReportRequest{Batch: true}
-		marshaledReq, err := proto.Marshal(batchReq)
-		if err != nil {
-			logger.Panicf("Could not marshal batch request proposal")
+
+		server.mu.Lock()
+		server.updateCommittedCuts()
+		resp := &pb.ReportResponse{
+			CommitedCuts: server.committedCut,
+			StartGSN:     server.globalSequenceNum,
 		}
-		server.rc.proposeC <- marshaledReq
+		server.mu.Unlock()
+		propData, err := json.Marshal(resp)
+		if err != nil {
+			logger.Printf(err.Error())
+			continue
+		}
+		prop := raftProposal{
+			proposalType: REPORT,
+			proposalData: propData,
+		}
+		server.rc.proposeC <- prop
 	}
 }
 
@@ -320,11 +330,6 @@ func (server *orderServer) listenForRaftCommits() {
 			server.updateFinalizationMap(req.Finalize)
 			server.respondToFinalizeChannels(req.Finalize)
 			continue
-		} else if req.Batch {
-			// req is a request to batch and send the global state to data shards
-			server.mu.Lock()
-			server.mergeContestedCuts()
-			server.mu.Unlock()
 		} else {
 			// Update the global state
 			server.mu.Lock()
