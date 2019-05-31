@@ -40,6 +40,19 @@ type FinalizationMap map[int32]int32
 // request has been committed>
 type FinalizationResponseChannels map[int32]chan struct{}
 
+type raftProposalType int
+
+const (
+	REPORT   raftProposalType = 0
+	REGISTER raftProposalType = 1
+	FINALIZE raftProposalType = 2
+)
+
+type raftProposal struct {
+	proposalType raftProposalType
+	proposalData []byte
+}
+
 type orderServer struct {
 	committedCut                 CommittedCut
 	contestedCut                 ContestedCut
