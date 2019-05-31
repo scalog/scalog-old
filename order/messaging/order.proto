@@ -10,7 +10,7 @@ service Order {
 
     rpc Forward(stream ReportRequest) returns (ReportResponse) {}
 
-    rpc Register(RegisterRequest) returns (RegisterResponse) {}
+    rpc Register(RegisterRequest) returns (stream RegisterResponse) {}
 
     rpc Finalize(FinalizeRequest) returns (FinalizeResponse) {}
 }
@@ -42,7 +42,9 @@ message RegisterRequest {
     int32 replicaID = 2;
 }
 
-message RegisterResponse {}
+message RegisterResponse {
+    int32 viewID = 1;
+}
 
 message FinalizeRequest {
     int32 shardID = 1;

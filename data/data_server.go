@@ -98,6 +98,10 @@ type dataServer struct {
 	clientSubsResponseChan chan int32
 	// Map from gsn to committed record
 	committedRecords map[int32]string
+	// Connection to node in order layer
+	orderConnection om.OrderClient
+	// Ticker for sending and receiving cuts to the order layer
+	ticker *time.Ticker
 }
 
 /*
@@ -107,57 +111,21 @@ Note: This is a blocking operation -- waits until all servers in a shard are up 
 communication channels with them. Only then will this server become ready to take requests.
 */
 func newDataServer() *dataServer {
-	replicaID := viper.GetInt32("id")
-	replicaCount := viper.GetInt("replica_count")
-	// TODO: Refactor this out
-	shardName := viper.GetString("shardGroup")
-	shardID := viper.GetInt32("shardID")
-
-	var shardPods []chan messaging.ReplicateRequest
-	var clientset *kubernetes.Clientset
-
-	// Run this only if running within a kubernetes cluster
-	if !viper.GetBool("localRun") {
-		logger.Printf("Server %d searching for other %d servers in %s\n", replicaID, replicaCount, shardName)
-		clientset = kube.InitKubernetesClient()
-		pods := kube.GetShardPods(clientset, "tier="+shardName, replicaCount, viper.GetString("namespace"))
-
-		for _, pod := range pods.Items {
-			if pod.Status.PodIP == viper.Get("pod_ip") {
-				continue
-			}
-			shardPods = append(shardPods, make(chan messaging.ReplicateRequest))
-			go createIntershardPodConnection(pod.Status.PodIP, shardPods[len(shardPods)-1])
-		}
-	} else {
-		// TODO: Make more extensible for testing -- right now we assume only two replicas in our local cluster
-		logger.Printf("Server %d searching for other %d servers on your local machine\n", replicaID, replicaCount)
-		shardPods = append(shardPods, make(chan messaging.ReplicateRequest))
-		if viper.GetString("port") == "8080" {
-			go createIntershardPodConnection("0.0.0.0:8081", shardPods[len(shardPods)-1])
-		} else {
-			go createIntershardPodConnection("0.0.0.0:8080", shardPods[len(shardPods)-1])
-		}
-	}
-
 	disk, err := storage.NewStorage("disk")
 	if err != nil {
-		// TODO handle error
 		logger.Printf("Failed to initialize storage: " + err.Error())
 	}
+	replicaCount := viper.GetInt("replica_count")
 	s := &dataServer{
-		replicaID:              replicaID,
+		replicaID:              viper.GetInt32("id"),
 		replicaCount:           replicaCount,
-		shardID:                shardID,
-		viewID:                 0, // TODO RYAN: viewID should be set on server init
+		shardID:                viper.GetInt32("shardID"),
 		viewMu:                 sync.RWMutex{},
 		lastCommittedCut:       make(order.CommittedCut),
 		isFinalized:            false,
 		disk:                   disk,
 		serverBuffers:          make([][]Record, replicaCount),
 		mu:                     sync.RWMutex{},
-		shardServers:           shardPods,
-		kubeClient:             clientset,
 		clientSubs:             make([]*clientSubscription, 10),
 		clientSubsMutex:        sync.RWMutex{},
 		newClientSubsChan:      make(chan *clientSubscription),
@@ -165,6 +133,7 @@ func newDataServer() *dataServer {
 		committedRecords:       make(map[int32]string),
 	}
 	s.setupOrderLayerComunication()
+	s.setupReplicateConnections()
 	go s.respondToClientSubs()
 	go s.handleNewClientSubs()
 	return s
@@ -213,6 +182,7 @@ func (server *dataServer) sendTentativeCutsToOrder(stream om.Order_ReportClient,
 	labelPodsAsFinalized adds a status:"finalized" label to the kubernetes pod object
 */
 func (server *dataServer) labelPodAsFinalized() {
+	server.isFinalized = true
 	podClient := server.kubeClient.CoreV1().Pods("scalog")
 	retryErr := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		// Retrieve the latest version of Deployment before attempting update
@@ -246,18 +216,6 @@ func (server *dataServer) notifyAllWaitingClients() {
 }
 
 /*
-	checkIfFinalized returns true if server is inside of [finalized]
-*/
-func (server *dataServer) checkIfFinalized(finalized []int32) bool {
-	for _, sid := range finalized {
-		if server.shardID == sid {
-			return true
-		}
-	}
-	return false
-}
-
-/*
 	Listens on the given stream for finalized cuts from the ordering layer.
 
 	Two actions occur upon receipt of a ordering layer report: 1) We update our cut
@@ -272,17 +230,6 @@ func (server *dataServer) receiveFinalizedCuts(stream om.Order_ReportClient, sen
 		if err != nil {
 			logger.Panicf(err.Error())
 		}
-
-		// if server.checkIfFinalized(in.Finalize) {
-		// 	// Stop serving further Append requests
-		// 	server.isFinalized = true
-		// 	// Stop sending tentative cuts to the ordering layer
-		// 	sendTicker.Stop()
-		// 	// Prevent discovery layer from finding this pod ever again
-		// 	server.labelPodAsFinalized()
-		// 	// Upon returning, stop receiving cuts from the ordering layer
-		// 	return
-		// }
 
 		go server.updateBehindClientSubs(in.StartGSN)
 
@@ -455,19 +402,72 @@ func (server *dataServer) setupOrderLayerComunication() {
 	}
 
 	client := om.NewOrderClient(conn)
+	server.orderConnection = client
+
+	req := &om.RegisterRequest{
+		ShardID:   server.shardID,
+		ReplicaID: server.replicaID,
+	}
+	viewStream, err := client.Register(context.Background(), req)
+	if err != nil {
+		logger.Printf(err.Error())
+	}
+	go server.listenForViewUpdates(viewStream)
+
 	stream, err := client.Report(context.Background())
 	if err != nil {
-		panic(err)
+		logger.Printf(err.Error())
 	}
 
 	interval := time.Duration(viper.GetInt("batch_interval"))
-	sendTicker := time.NewTicker(interval * time.Millisecond)
-	go server.sendTentativeCutsToOrder(stream, sendTicker)
-	go server.receiveFinalizedCuts(stream, sendTicker)
+	server.ticker = time.NewTicker(interval * time.Millisecond)
+	go server.sendTentativeCutsToOrder(stream, server.ticker)
+	go server.receiveFinalizedCuts(stream, server.ticker)
+}
+
+func (server *dataServer) listenForViewUpdates(stream om.Order_RegisterClient) {
+	for {
+		in, err := stream.Recv()
+		if err == io.EOF {
+			return
+		}
+		if err != nil {
+			logger.Printf(err.Error())
+		}
+		server.viewMu.Lock()
+		server.viewID = in.ViewID
+		server.viewMu.Unlock()
+	}
+}
+
+func (server *dataServer) setupReplicateConnections() {
+	shardName := viper.GetString("shardGroup")
+	var shardPods []chan messaging.ReplicateRequest
+	if !viper.GetBool("localRun") {
+		logger.Printf("Server %d searching for other %d servers in %s\n", server.replicaID, server.replicaCount, shardName)
+		server.kubeClient = kube.InitKubernetesClient()
+		pods := kube.GetShardPods(server.kubeClient, "tier="+shardName, server.replicaCount, viper.GetString("namespace"))
+		for _, pod := range pods.Items {
+			if pod.Status.PodIP == viper.Get("pod_ip") {
+				continue
+			}
+			shardPods = append(shardPods, make(chan messaging.ReplicateRequest))
+			go server.createIntershardPodConnection(pod.Status.PodIP, shardPods[len(shardPods)-1])
+		}
+	} else {
+		// TODO: Make more extensible for testing -- right now we assume only two replicas in our local cluster
+		logger.Printf("Server %d searching for other %d servers on your local machine\n", server.replicaID, server.replicaCount)
+		shardPods = append(shardPods, make(chan messaging.ReplicateRequest))
+		if viper.GetString("port") == "8080" {
+			go server.createIntershardPodConnection("0.0.0.0:8081", shardPods[len(shardPods)-1])
+		} else {
+			go server.createIntershardPodConnection("0.0.0.0:8080", shardPods[len(shardPods)-1])
+		}
+	}
 }
 
 // Forms a channel which writes to a specific pod on a specific pod ip
-func createIntershardPodConnection(podIP string, ch chan messaging.ReplicateRequest) {
+func (server *dataServer) createIntershardPodConnection(podIP string, ch chan messaging.ReplicateRequest) {
 	var conn *grpc.ClientConn
 	if viper.GetBool("localRun") {
 		conn = golib.ConnectTo(podIP)
@@ -484,7 +484,18 @@ func createIntershardPodConnection(podIP string, ch chan messaging.ReplicateRequ
 
 	for req := range ch {
 		if err := stream.Send(&req); err != nil {
-			logger.Panicf(err.Error())
+			logger.Printf(err.Error())
+			req := &om.FinalizeRequest{
+				ShardID: server.shardID,
+				Limit:   0,
+			}
+			// Blocks until shard is finalized
+			if _, err := server.orderConnection.Finalize(context.Background(), req); err != nil {
+				logger.Printf(err.Error())
+			}
+			server.ticker.Stop()
+			server.notifyAllWaitingClients()
+			server.labelPodAsFinalized()
 		}
 	}
 }

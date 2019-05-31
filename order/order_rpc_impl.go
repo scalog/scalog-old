@@ -44,8 +44,8 @@ func (server *orderServer) Forward(stream pb.Order_ForwardServer) error {
 	return nil
 }
 
-func (server *orderServer) Register(ctx context.Context, req *pb.RegisterRequest) (*pb.RegisterResponse, error) {
-	return nil, nil
+func (server *orderServer) Register(req *pb.RegisterRequest, stream pb.Order_RegisterServer) error {
+	return nil
 }
 
 func (server *orderServer) Finalize(ctx context.Context, req *pb.FinalizeRequest) (*pb.FinalizeResponse, error) {
