@@ -2,10 +2,11 @@ package order
 
 import (
 	"context"
+	"fmt"
 	"io"
 
 	"github.com/golang/protobuf/proto"
-	"github.com/scalog/scalog/logger"
+	"github.com/scalog/scalog/internal/pkg/golib"
 	pb "github.com/scalog/scalog/order/messaging"
 )
 
@@ -13,7 +14,7 @@ import (
 Receives messages from the data layer. Spawns response function with a pointer to the stream to respond to data layer with newly committed cuts.
 */
 func (server *orderServer) Report(stream pb.Order_ReportServer) error {
-	spawned := false
+	go server.reportResponseRoutine(stream)
 	for {
 		req, err := stream.Recv()
 		if err == io.EOF {
@@ -22,26 +23,37 @@ func (server *orderServer) Report(stream pb.Order_ReportServer) error {
 		if err != nil {
 			return err
 		}
-		if !spawned {
-			// Boot routine ONLY ONCE for periodically responding to data layer
-			go server.reportResponseRoutine(stream, req)
-			spawned = true
+		for shardID := range req.Shards {
+			server.addShard(int(shardID))
 		}
-		propData, err := proto.Marshal(req)
-		if err != nil {
-			logger.Panicf(err.Error())
-		}
-		prop := raftProposal{
-			proposalType: REPORT,
-			proposalData: propData,
-		}
-		server.rc.proposeC <- prop
+		server.forwardC <- req
 	}
 }
 
 func (server *orderServer) Forward(stream pb.Order_ForwardServer) error {
-	// TODO
-	return nil
+	for {
+		req, err := stream.Recv()
+		if err == io.EOF {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if !server.rc.isLeader() {
+			server.forwardC <- req
+			return fmt.Errorf("Forward request sent to non-leader")
+		}
+		server.mu.Lock()
+		for shardID, replicaCuts := range req.Shards {
+			for replicaID, cut := range replicaCuts.Replicas {
+				for i := 0; i < server.numServersPerShard; i++ {
+					prior := server.contestedCut[int(shardID)][int(replicaID)][i]
+					server.contestedCut[int(shardID)][int(replicaID)][i] = golib.Max(prior, int(cut.Cut[i]))
+				}
+			}
+		}
+		server.mu.Unlock()
+	}
 }
 
 func (server *orderServer) Register(req *pb.RegisterRequest, stream pb.Order_RegisterServer) error {

@@ -42,6 +42,7 @@ func Start() {
 	server := newOrderServer(golib.NewSet(), viper.GetInt("replica_count"))
 	rc := newRaftNode(id, peers, false, server.getSnapshot)
 	server.rc = rc
+	go server.connectToLeader()
 
 	messaging.RegisterOrderServer(grpcServer, server)
 	go server.proposalRaftBatch()

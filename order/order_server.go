@@ -1,10 +1,14 @@
 package order
 
 import (
+	"context"
 	"encoding/json"
 	"math"
+	"strings"
 	"sync"
 	"time"
+
+	"go.etcd.io/etcd/raft"
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/spf13/viper"
@@ -67,6 +71,7 @@ type orderServer struct {
 	rc                           *raftNode
 	viewID                       int32
 	viewC                        chan *pb.RegisterResponse
+	forwardC                     chan *pb.ReportRequest
 }
 
 // Fields in orderServer necessary for state replication. Used in Raft.
@@ -91,6 +96,34 @@ func newOrderServer(shardIds *golib.Set, numServersPerShard int) *orderServer {
 		finalizationResponseChannels: make(FinalizationResponseChannels),
 		viewID:                       0,
 		viewC:                        make(chan *pb.RegisterResponse),
+		forwardC:                     make(chan *pb.ReportRequest),
+	}
+}
+
+func (server *orderServer) connectToLeader() {
+	if server.rc.isLeader() {
+		return
+	}
+	server.rc.leaderMu.RLock()
+	leaderID := server.rc.leaderID
+	server.rc.leaderMu.RUnlock()
+	if leaderID == raft.None {
+		logger.Printf("Failed to connect to leader: no leader")
+		return
+	}
+	address := strings.TrimPrefix(server.rc.peers[leaderID-1], "http://")
+	conn := golib.ConnectTo(address)
+	client := pb.NewOrderClient(conn)
+	stream, err := client.Forward(context.Background())
+	if err != nil {
+		logger.Printf(err.Error())
+	}
+	for req := range server.forwardC {
+		if err := stream.Send(req); err != nil {
+			logger.Printf(err.Error())
+			go server.connectToLeader()
+			return
+		}
 	}
 }
 
@@ -247,13 +280,7 @@ func (server *orderServer) deleteShard(shardID int32) bool {
 /**
 Reports final cuts to the data layer periodically. Reads from ResponseChannels and feeds into the stream.
 */
-func (server *orderServer) reportResponseRoutine(stream pb.Order_ReportServer, req *pb.ReportRequest) {
-	// For every shardID that we have not seen before, we should generate state and stuff
-	for shardID := range req.Shards {
-		// addShard already checks to see if shardID exists
-		server.addShard(int(shardID))
-	}
-
+func (server *orderServer) reportResponseRoutine(stream pb.Order_ReportServer) {
 	// We serve responses from this channel back to the aggregator
 	ch := make(chan pb.ReportResponse)
 	server.aggregatorResponseChannels = append(server.aggregatorResponseChannels, ch)
@@ -276,10 +303,8 @@ func (server *orderServer) proposalRaftBatch() {
 		if server.rc.node == nil {
 			continue
 		}
-		isLeader := server.rc.leaderID == uint64(server.rc.id)
-
 		//do nothing if you're not the leader
-		if !isLeader {
+		if !server.rc.isLeader() {
 			continue
 		}
 
@@ -322,7 +347,26 @@ func (server *orderServer) listenForRaftCommits() {
 
 		switch prop.proposalType {
 		case REPORT:
-			// TODO
+			resp := &pb.ReportResponse{}
+			if err := proto.Unmarshal(entry.Data, resp); err != nil {
+				logger.Printf(err.Error())
+				continue
+			}
+			server.mu.Lock()
+			server.committedCut = resp.CommitedCuts
+			server.globalSequenceNum = resp.StartGSN
+			for shardID, replicaCuts := range resp.CommitedCuts {
+				for replicaID, cut := range replicaCuts.Cut {
+					for i := 0; i < server.numServersPerShard; i++ {
+						prior := server.contestedCut[int(shardID)][int(replicaID)][i]
+						server.contestedCut[int(shardID)][int(replicaID)][i] = golib.Max(prior, int(cut))
+					}
+				}
+			}
+			for _, respC := range server.aggregatorResponseChannels {
+				respC <- *resp
+			}
+			server.mu.Unlock()
 		case REGISTER:
 			server.viewID++
 			viewUpdate := &pb.RegisterResponse{ViewID: server.viewID}
@@ -337,22 +381,8 @@ func (server *orderServer) listenForRaftCommits() {
 			server.finalizedShards.Add(resp.ShardID)
 			server.deleteShard(resp.ShardID)
 		default:
-			// TODO
+			logger.Printf("Invalid raft proposal")
 		}
-		// Logic to be moved into Forward
-		// else {
-		// 	// Update the global state
-		// 	server.mu.Lock()
-		// 	for shardID, replicaCuts := range req.Shards {
-		// 		for replicaID, cut := range replicaCuts.Replicas {
-		// 			for i := 0; i < server.numServersPerShard; i++ {
-		// 				prior := server.contestedCut[int(shardID)][int(replicaID)][i]
-		// 				server.contestedCut[int(shardID)][int(replicaID)][i] = golib.Max(prior, int(cut.Cut[i]))
-		// 			}
-		// 		}
-		// 	}
-		// 	server.mu.Unlock()
-		// }
 	}
 }
 
