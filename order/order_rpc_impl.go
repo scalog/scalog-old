@@ -67,17 +67,11 @@ func (server *orderServer) Register(req *pb.RegisterRequest, stream pb.Order_Reg
 }
 
 func (server *orderServer) Finalize(ctx context.Context, req *pb.FinalizeRequest) (*pb.FinalizeResponse, error) {
-	propData, err := proto.Marshal(req)
-	if err != nil {
-		logger.Printf("Could not marshal finalization request message")
-		return nil, err
+	if _, in := server.finalizeMap[req.ShardID]; !in {
+		server.finalizeMap[req.ShardID] = req
+		server.finalizationResponseChannels[req.ShardID] = make(chan pb.FinalizeResponse)
+
 	}
-	server.finalizationResponseChannels[req.ShardID] = make(chan pb.FinalizeResponse)
-	prop := raftProposal{
-		proposalType: FINALIZE,
-		proposalData: propData,
-	}
-	server.rc.proposeC <- prop
 	resp := <-server.finalizationResponseChannels[req.ShardID]
 	delete(server.finalizationResponseChannels, req.ShardID)
 	return &resp, nil

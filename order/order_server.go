@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gogo/protobuf/proto"
 	"github.com/spf13/viper"
 
 	"github.com/scalog/scalog/internal/pkg/golib"
@@ -33,7 +34,7 @@ type Deltas CommittedCut
 type ResponseChannels []chan pb.ReportResponse
 
 // FinalizationMap map<shardID, finalize after k cuts>
-type FinalizationMap map[int32]int32
+type FinalizationMap map[int32]*pb.FinalizeRequest
 
 // Map<Shard ID, Channels to write responses to when a shard finalization
 // request has been committed>
@@ -140,14 +141,14 @@ func (server *orderServer) updateCommittedCuts() {
 // getShardsToFinalize returns all shardID's bound in this map that
 // are meant to commit in 0 cuts, and decrements all other bound
 // shardID's by one.
-func (server *orderServer) getShardsToFinalize() []int32 {
-	shardsToFinalize := make([]int32, 0)
-	for shardID, cuts := range server.finalizeMap {
-		if cuts == 0 {
-			shardsToFinalize = append(shardsToFinalize, shardID)
+func (server *orderServer) getShardsToFinalize() []*pb.FinalizeRequest {
+	shardsToFinalize := make([]*pb.FinalizeRequest, 0)
+	for shardID, req := range server.finalizeMap {
+		if req.Limit == 0 {
+			shardsToFinalize = append(shardsToFinalize, req)
 			delete(server.finalizeMap, shardID)
 		} else {
-			server.finalizeMap[shardID]--
+			server.finalizeMap[shardID].Limit--
 		}
 
 	}
@@ -165,9 +166,17 @@ func (server *orderServer) mergeContestedCuts() {
 	server.updateCommittedCuts()
 	shardsToFinalize := server.getShardsToFinalize()
 	// Keep track of shards that we have finalized so that we ignore pipelined requests
-	for _, sid := range shardsToFinalize {
-		server.finalizedShards.Add(sid)
-		server.deleteShard(sid)
+	for _, req := range shardsToFinalize {
+		resp := &pb.FinalizeResponse{ShardID: req.ShardID}
+		propData, err := proto.Marshal(resp)
+		if err != nil {
+			logger.Printf("Could not marshal finalization request message")
+		}
+		prop := raftProposal{
+			proposalType: FINALIZE,
+			proposalData: propData,
+		}
+		server.rc.proposeC <- prop
 	}
 	// broadcast cuts
 	resp := pb.ReportResponse{
@@ -294,21 +303,6 @@ func (server *orderServer) proposalRaftBatch() {
 	}
 }
 
-func (server *orderServer) updateFinalizationMap(shardsToFinalize map[int32]int32) {
-	for shardID, cuts := range shardsToFinalize {
-		server.finalizeMap[shardID] = cuts
-	}
-}
-
-func (server *orderServer) respondToFinalizeChannels(shardsToFinalize map[int32]int32) {
-	for shardID := range shardsToFinalize {
-		if ch, ok := server.finalizationResponseChannels[shardID]; ok {
-			close(ch)
-		}
-	}
-
-}
-
 ////////////////////// RAFT FUNCTIONS
 
 /**
@@ -334,7 +328,14 @@ func (server *orderServer) listenForRaftCommits() {
 			viewUpdate := &pb.RegisterResponse{ViewID: server.viewID}
 			server.viewC <- viewUpdate
 		case FINALIZE:
-			// TODO
+			resp := &pb.FinalizeResponse{}
+			if err := proto.Unmarshal(entry.Data, resp); err != nil {
+				logger.Printf(err.Error())
+				continue
+			}
+			server.finalizationResponseChannels[resp.ShardID] <- *resp
+			server.finalizedShards.Add(resp.ShardID)
+			server.deleteShard(resp.ShardID)
 		default:
 			// TODO
 		}
