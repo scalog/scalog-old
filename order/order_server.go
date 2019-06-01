@@ -9,13 +9,13 @@ import (
 	"time"
 
 	"github.com/gogo/protobuf/proto"
-	pb "github.com/scalog/scalog/order/messaging"
 	"github.com/spf13/viper"
 	"go.etcd.io/etcd/etcdserver/api/snap"
 	"go.etcd.io/etcd/raft"
 
 	"github.com/scalog/scalog/internal/pkg/golib"
 	"github.com/scalog/scalog/logger"
+	pb "github.com/scalog/scalog/order/messaging"
 )
 
 // Cut is a replica's latest view of cuts for all replicas in its shard
@@ -355,12 +355,8 @@ func (server *orderServer) getState() orderServerState {
 func (server *orderServer) loadState(state *orderServerState) {
 	server.mu.Lock()
 	defer server.mu.Unlock()
-
 	server.committedCut = state.committedCut
 	server.globalSequenceNum = state.globalSequenceNum
-
-	// TODO: Update loadState
-
 	server.shardIds = state.shardIds
 }
 

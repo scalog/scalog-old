@@ -10,7 +10,6 @@ import (
 
 	"github.com/scalog/scalog/internal/pkg/golib"
 	"github.com/scalog/scalog/internal/pkg/kube"
-
 	"github.com/scalog/scalog/order"
 
 	"github.com/scalog/scalog/data/messaging"
@@ -110,16 +109,15 @@ Creates a new data server replica
 Note: This is a blocking operation -- waits until all servers in a shard are up before trying to open
 communication channels with them. Only then will this server become ready to take requests.
 */
-func newDataServer() *dataServer {
+func newDataServer(replicaID, shardID int32, replicaCount int) *dataServer {
 	disk, err := storage.NewStorage("disk")
 	if err != nil {
 		logger.Printf("Failed to initialize storage: " + err.Error())
 	}
-	replicaCount := viper.GetInt("replica_count")
 	s := &dataServer{
-		replicaID:              viper.GetInt32("id"),
+		replicaID:              replicaID,
 		replicaCount:           replicaCount,
-		shardID:                viper.GetInt32("shardID"),
+		shardID:                shardID,
 		viewMu:                 sync.RWMutex{},
 		lastCommittedCut:       make(order.CommittedCut),
 		isFinalized:            false,
@@ -143,7 +141,7 @@ func newDataServer() *dataServer {
 	Periodically sends a vector composed of the length of this server's buffers to
 	the ordering layer. Only sends if any new messages were received by this shard
 */
-func (server *dataServer) sendTentativeCutsToOrder(stream om.Order_ReportClient, ticker *time.Ticker) {
+func (server *dataServer) sendLocalCutsToOrder(stream om.Order_ReportClient, ticker *time.Ticker) {
 	// Keeps track of previous ordering layer reports
 	sent := make([]int32, server.replicaCount)
 	for i := range sent {
@@ -421,7 +419,7 @@ func (server *dataServer) setupOrderLayerComunication() {
 
 	interval := time.Duration(viper.GetInt("batch_interval"))
 	server.ticker = time.NewTicker(interval * time.Millisecond)
-	go server.sendTentativeCutsToOrder(stream, server.ticker)
+	go server.sendLocalCutsToOrder(stream, server.ticker)
 	go server.receiveFinalizedCuts(stream, server.ticker)
 }
 

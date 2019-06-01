@@ -25,7 +25,7 @@ func Start() {
 	healthServer := health.NewServer()
 	healthServer.Resume()
 	healthgrpc.RegisterHealthServer(grpcServer, healthServer)
-	messaging.RegisterDataServer(grpcServer, newDataServer())
+	messaging.RegisterDataServer(grpcServer, newDataServer(viper.GetInt32("id"), viper.GetInt32("shardID"), viper.GetInt("replica_count")))
 	log.Printf("Data layer server %d available on %d\n", viper.Get("id"), viper.Get("port"))
 	grpcServer.Serve(lis)
 }
