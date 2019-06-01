@@ -42,9 +42,10 @@ func Start() {
 	server := newOrderServer(golib.NewSet(), viper.GetInt("replica_count"))
 	rc := newRaftNode(id, peers, false, server.getSnapshot)
 	server.rc = rc
+	go server.connectToLeader()
 
 	messaging.RegisterOrderServer(grpcServer, server)
-	go server.proposalRaftBatch()
+	go server.proposeGlobalCutToRaft()
 	go server.listenForRaftCommits()
 
 	log.Printf("Order layer server available on port %d\n", viper.Get("port"))

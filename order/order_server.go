@@ -1,21 +1,24 @@
 package order
 
 import (
+	"context"
 	"encoding/json"
 	"math"
+	"strings"
 	"sync"
 	"time"
 
-	"github.com/spf13/viper"
-
 	"github.com/gogo/protobuf/proto"
+	"github.com/spf13/viper"
+	"go.etcd.io/etcd/etcdserver/api/snap"
+	"go.etcd.io/etcd/raft"
+
 	"github.com/scalog/scalog/internal/pkg/golib"
 	"github.com/scalog/scalog/logger"
 	pb "github.com/scalog/scalog/order/messaging"
-	"go.etcd.io/etcd/etcdserver/api/snap"
 )
 
-// Server's view of latest cuts in all servers of the shard
+// Cut is a replica's latest view of cuts for all replicas in its shard
 type Cut []int
 
 // All cuts from all replicas within a shard
@@ -27,53 +30,94 @@ type ContestedCut map[int]ShardCuts
 // Map<Shard ID, Cuts in the shard>
 type CommittedCut map[int32]*pb.Cut
 
-// Number of new logs appended within the previous time period
-type Deltas CommittedCut
+type raftProposalType int
 
-// ResponseChannels is an array of channels that response to connected aggregators
-type ResponseChannels []chan pb.ReportResponse
+const (
+	REPORT   raftProposalType = 0
+	REGISTER raftProposalType = 1
+	FINALIZE raftProposalType = 2
+)
 
-// FinalizationMap map<shardID, finalize after k cuts>
-type FinalizationMap map[int32]int32
-
-// Map<Shard ID, Channels to write responses to when a shard finalization
-// request has been committed>
-type FinalizationResponseChannels map[int32]chan struct{}
+type raftProposal struct {
+	proposalType raftProposalType
+	proposalData []byte
+}
 
 type orderServer struct {
-	committedCut                 CommittedCut
-	contestedCut                 ContestedCut
-	finalizeMap                  FinalizationMap
-	finalizedShards              *golib.Set32
-	globalSequenceNum            int32
-	shardIds                     *golib.Set
-	numServersPerShard           int
-	mu                           sync.RWMutex
-	finalizationResponseChannels FinalizationResponseChannels
-	aggregatorResponseChannels   ResponseChannels
-	rc                           *raftNode
+	committedCut           CommittedCut
+	contestedCut           ContestedCut
+	finalizeShardRequests  []*pb.FinalizeRequest
+	finalizedShards        *golib.Set32
+	globalSequenceNum      int32
+	shardIds               *golib.Set
+	numServersPerShard     int
+	mu                     sync.RWMutex
+	reportResponseChannels []chan *pb.ReportResponse
+	rc                     *raftNode
+	viewID                 int32
+	viewMu                 sync.RWMutex
+	forwardC               chan *pb.ReportRequest
 }
 
 // Fields in orderServer necessary for state replication. Used in Raft.
 type orderServerState struct {
 	committedCut      CommittedCut
-	contestedCut      ContestedCut
 	globalSequenceNum int32
 	shardIds          *golib.Set
 }
 
 func newOrderServer(shardIds *golib.Set, numServersPerShard int) *orderServer {
 	return &orderServer{
-		committedCut:                 initCommittedCut(shardIds, numServersPerShard),
-		contestedCut:                 initContestedCut(shardIds, numServersPerShard),
-		finalizeMap:                  make(FinalizationMap),
-		finalizedShards:              golib.NewSet32(),
-		globalSequenceNum:            0,
-		shardIds:                     shardIds,
-		numServersPerShard:           numServersPerShard,
-		mu:                           sync.RWMutex{},
-		aggregatorResponseChannels:   make(ResponseChannels, 0),
-		finalizationResponseChannels: make(FinalizationResponseChannels),
+		committedCut:           initCommittedCut(shardIds, numServersPerShard),
+		contestedCut:           initContestedCut(shardIds, numServersPerShard),
+		finalizeShardRequests:  make([]*pb.FinalizeRequest, 0),
+		finalizedShards:        golib.NewSet32(),
+		globalSequenceNum:      0,
+		shardIds:               shardIds,
+		numServersPerShard:     numServersPerShard,
+		mu:                     sync.RWMutex{},
+		reportResponseChannels: make([]chan *pb.ReportResponse, 0),
+		viewID:                 0,
+		viewMu:                 sync.RWMutex{},
+		forwardC:               make(chan *pb.ReportRequest),
+	}
+}
+
+func (server *orderServer) connectToLeader() {
+	if server.rc.isLeader() {
+		server.listenForForwards()
+		return
+	}
+	server.rc.leaderMu.RLock()
+	leaderID := server.rc.leaderID
+	server.rc.leaderMu.RUnlock()
+	if leaderID == raft.None {
+		logger.Printf("Failed to connect to leader: no leader")
+		return
+	}
+	address := strings.TrimPrefix(server.rc.peers[leaderID-1], "http://")
+	conn := golib.ConnectTo(address)
+	client := pb.NewOrderClient(conn)
+	stream, err := client.Forward(context.Background())
+	if err != nil {
+		logger.Printf(err.Error())
+	}
+	for req := range server.forwardC {
+		if err := stream.Send(req); err != nil {
+			logger.Printf(err.Error())
+			go server.connectToLeader()
+			return
+		}
+	}
+}
+
+func (server *orderServer) listenForForwards() {
+	for req := range server.forwardC {
+		if !server.rc.isLeader() {
+			go server.connectToLeader()
+			return
+		}
+		server.updateContestedCut(req)
 	}
 }
 
@@ -92,16 +136,34 @@ func initCommittedCut(shardIds *golib.Set, numServersPerShard int) CommittedCut 
 func initContestedCut(shardIds *golib.Set, numServersPerShard int) ContestedCut {
 	cut := make(ContestedCut)
 	for shardID := range shardIds.Iterable() {
-		shardCuts := make(ShardCuts, numServersPerShard)
-		for i := 0; i < numServersPerShard; i++ {
-			shardCuts[i] = make(Cut, numServersPerShard)
-		}
-		cut[shardID] = shardCuts
+		cut[shardID] = newShardCuts(numServersPerShard)
 	}
 	return cut
 }
 
+func newShardCuts(numReplicasPerShard int) ShardCuts {
+	s := make(ShardCuts, numReplicasPerShard)
+	for i := 0; i < numReplicasPerShard; i++ {
+		s[i] = make(Cut, numReplicasPerShard)
+	}
+	return s
+}
+
 ////////////// ORDER SERVER STATE MUTATORS
+
+func (server *orderServer) updateContestedCut(req *pb.ReportRequest) {
+	server.mu.Lock()
+	defer server.mu.Unlock()
+	for shardID, shardView := range req.Shards {
+		server.addShard(int(shardID))
+		for replicaID, cut := range shardView.Replicas {
+			for i := 0; i < server.numServersPerShard; i++ {
+				prior := server.contestedCut[int(shardID)][int(replicaID)][i]
+				server.contestedCut[int(shardID)][int(replicaID)][i] = golib.Max(prior, int(cut.Cut[i]))
+			}
+		}
+	}
+}
 
 // updateCommittedCuts updates both the GSN and committedCuts
 func (server *orderServer) updateCommittedCuts() {
@@ -121,174 +183,90 @@ func (server *orderServer) updateCommittedCuts() {
 	}
 }
 
-// getShardsToFinalize returns all shardID's bound in this map that
-// are meant to commit in 0 cuts, and decrements all other bound
-// shardID's by one.
-func (server *orderServer) getShardsToFinalize() []int32 {
-	shardsToFinalize := make([]int32, 0)
-	for shardID, cuts := range server.finalizeMap {
-		if cuts == 0 {
-			shardsToFinalize = append(shardsToFinalize, shardID)
-			delete(server.finalizeMap, shardID)
-		} else {
-			server.finalizeMap[shardID]--
-		}
-
-	}
-	return shardsToFinalize
-}
-
-/**
-Find min cut for each shard and compute changes from last committed cuts.
-Compute global sequence number for each server.
-Broadcasts the new CommittedCuts to data layer.
-
-CAUTION: THE CALLER MUST OBTAIN THE LOCK
-*/
-func (server *orderServer) mergeContestedCuts() {
-	server.updateCommittedCuts()
-	shardsToFinalize := server.getShardsToFinalize()
-	// Keep track of shards that we have finalized so that we ignore pipelined requests
-	for _, sid := range shardsToFinalize {
-		server.finalizedShards.Add(sid)
-		server.deleteShard(sid)
-	}
-	// broadcast cuts
-	resp := pb.ReportResponse{
-		CommitedCuts: server.committedCut,
-		StartGSN:     server.globalSequenceNum,
-		Finalize:     shardsToFinalize,
-	}
-	for _, ch := range server.aggregatorResponseChannels {
-		ch <- resp
-	}
-}
-
-/**
-Adds a shard with the shardID to the ordering layer. Does nothing if the shardID already exists.
-
-This operation acquires a writer lock.
-*/
+// Assumes server lock is acquired
 func (server *orderServer) addShard(shardID int) {
-	//Use read lock to determine if adding is necessary
-	server.mu.RLock()
-	exists := server.shardIds.Contains(shardID)
-	server.mu.RUnlock()
-	if exists {
-		return //Do not attempt to add a shard that was already added
+	in := server.shardIds.Contains(int(shardID))
+	if in {
+		return
 	}
+	server.shardIds.Add(shardID)
+	server.committedCut[int32(shardID)] = &pb.Cut{Cut: make([]int32, server.numServersPerShard)}
+	server.contestedCut[shardID] = newShardCuts(server.numServersPerShard)
+}
 
+func (server *orderServer) deleteShard(shardID int32) {
+	server.mu.RLock()
+	in := server.shardIds.Contains(int(shardID))
+	server.mu.RUnlock()
+	if !in {
+		return
+	}
 	server.mu.Lock()
 	defer server.mu.Unlock()
-
-	server.shardIds.Add(shardID)
-	server.committedCut[int32(shardID)] = &pb.Cut{
-		Cut: make([]int32, server.numServersPerShard),
-	}
-	server.contestedCut[shardID] = make(ShardCuts, server.numServersPerShard)
-
-	for i := 0; i < server.numServersPerShard; i++ {
-		server.contestedCut[shardID][i] = make(Cut, server.numServersPerShard)
-	}
-}
-
-/**
-Notifies the shard that it is being finalized, then removes the shardID metadata.
-Does nothing if the shardID does not exist.
-
-@param committed True if the deletion was committed to Raft. Determines whether or not we'll notify
-	the data layer or operator of this deletion.
-@returns Whether or not this shard existed.
-
-NOTE: CALLER MUST ACQUIRE WRITE LOCK
-*/
-func (server *orderServer) deleteShard(shardID int32) bool {
-	exists := server.shardIds.Contains(int(shardID))
-	if !exists {
-		return false //Do not attempt to delete a shard that was already deleted
-	}
-
-	// Delete the shard from cuts. A gesture to signify to Raft log that the shard is deleted.
-	// Meaningless to others unless a cut with this deletion is committed (consensus is reached).
+	server.shardIds.Remove(int(shardID))
 	delete(server.committedCut, shardID)
 	delete(server.contestedCut, int(shardID))
-
-	// Cleanup channels used for data layer communication
-	server.shardIds.Remove(int(shardID))
-	return true
 }
 
-////////////////////// DATA LAYER GRPC FUNCTIONS
-
-/**
-Reports final cuts to the data layer periodically. Reads from ResponseChannels and feeds into the stream.
-*/
-func (server *orderServer) reportResponseRoutine(stream pb.Order_ReportServer, req *pb.ReportRequest) {
-	// For every shardID that we have not seen before, we should generate state and stuff
-	for shardID := range req.Shards {
-		// addShard already checks to see if shardID exists
-		server.addShard(int(shardID))
-	}
-
-	// We serve responses from this channel back to the aggregator
-	ch := make(chan pb.ReportResponse)
-	server.aggregatorResponseChannels = append(server.aggregatorResponseChannels, ch)
-	for response := range ch {
-		err := stream.Send(&response)
-		if err != nil {
-			logger.Panicf(err.Error())
-		}
-	}
-}
-
-/**
-proposalRaftBatch periodically proposes that raft batch and send a globalCut
- to the data layer
-*/
-func (server *orderServer) proposalRaftBatch() {
+func (server *orderServer) proposeGlobalCutToRaft() {
 	interval := time.Duration(viper.GetInt("batch_interval"))
 	ticker := time.NewTicker(interval * time.Millisecond)
 	for range ticker.C {
 		if server.rc.node == nil {
 			continue
 		}
-		isLeader := server.rc.leaderID == uint64(server.rc.id)
-
-		//do nothing if you're not the leader
-		if !isLeader {
+		if !server.rc.isLeader() {
 			continue
 		}
-		// propose a batch operation to raft
-		// TODO: only propose a batch operation if we have seen some change in state?
-		batchReq := &pb.ReportRequest{Batch: true}
-		marshaledReq, err := proto.Marshal(batchReq)
+		server.mu.Lock()
+		server.updateCommittedCuts()
+		resp := &pb.ReportResponse{
+			CommitedCuts: server.committedCut,
+			StartGSN:     server.globalSequenceNum,
+		}
+		server.mu.Unlock()
+		propData, err := json.Marshal(resp)
 		if err != nil {
-			logger.Panicf("Could not marshal batch request proposal")
+			logger.Printf(err.Error())
+			continue
 		}
-		server.rc.proposeC <- marshaledReq
+		prop := raftProposal{
+			proposalType: REPORT,
+			proposalData: propData,
+		}
+		server.rc.proposeC <- prop
+		server.updateFinalizeShardRequests()
 	}
 }
 
-func (server *orderServer) updateFinalizationMap(shardsToFinalize map[int32]int32) {
-	for shardID, cuts := range shardsToFinalize {
-		server.finalizeMap[shardID] = cuts
-	}
-}
-
-func (server *orderServer) respondToFinalizeChannels(shardsToFinalize map[int32]int32) {
-	for shardID := range shardsToFinalize {
-		if ch, ok := server.finalizationResponseChannels[shardID]; ok {
-			close(ch)
+func (server *orderServer) updateFinalizeShardRequests() {
+	shardsToFinalize := make([]*pb.FinalizeRequest, 0)
+	shardsPendingFinalize := make([]*pb.FinalizeRequest, 0)
+	server.mu.Lock()
+	for _, req := range server.finalizeShardRequests {
+		if req.Limit <= 0 {
+			shardsToFinalize = append(shardsToFinalize, req)
+		} else {
+			req.Limit--
+			shardsPendingFinalize = append(shardsPendingFinalize, req)
 		}
 	}
-
+	server.finalizeShardRequests = shardsPendingFinalize
+	server.mu.Unlock()
+	for _, req := range shardsToFinalize {
+		propData, err := proto.Marshal(req)
+		if err != nil {
+			logger.Printf("Could not marshal finalization request message")
+			continue
+		}
+		prop := raftProposal{
+			proposalType: FINALIZE,
+			proposalData: propData,
+		}
+		server.rc.proposeC <- prop
+	}
 }
 
-////////////////////// RAFT FUNCTIONS
-
-/**
-Triggered when Raft commits a new message.
-*/
 func (server *orderServer) listenForRaftCommits() {
 	for entry := range server.rc.commitC {
 		if entry == nil {
@@ -296,79 +274,99 @@ func (server *orderServer) listenForRaftCommits() {
 			continue
 		}
 
-		req := &pb.ReportRequest{}
-		if err := proto.Unmarshal(entry.Data, req); err != nil {
-			logger.Panicf("Could not unmarshal raft commit message")
+		prop := &raftProposal{}
+		if err := json.Unmarshal(entry.Data, prop); err != nil {
+			logger.Printf(err.Error())
+			continue
 		}
 
-		// ReportRequests can take two actions -- one is where we decide upon a shard cut.
-		// The other action is if we decide on finalizing a particular shard.
-		if req.Finalize != nil {
-			server.updateFinalizationMap(req.Finalize)
-			server.respondToFinalizeChannels(req.Finalize)
-			continue
-		} else if req.Batch {
-			// req is a request to batch and send the global state to data shards
+		switch prop.proposalType {
+		case REPORT:
+			resp := &pb.ReportResponse{}
+			if err := proto.Unmarshal(entry.Data, resp); err != nil {
+				logger.Printf(err.Error())
+				continue
+			}
+			server.viewMu.RLock()
+			resp.ViewID = server.viewID
+			server.viewMu.RUnlock()
 			server.mu.Lock()
-			server.mergeContestedCuts()
-			server.mu.Unlock()
-		} else {
-			// Update the global state
-			server.mu.Lock()
-			for shardID, replicaCuts := range req.Shards {
-				for replicaID, cut := range replicaCuts.Replicas {
+			server.committedCut = resp.CommitedCuts
+			server.globalSequenceNum = resp.StartGSN
+			for shardID, replicaCuts := range resp.CommitedCuts {
+				server.addShard(int(shardID))
+				for replicaID, cut := range replicaCuts.Cut {
 					for i := 0; i < server.numServersPerShard; i++ {
 						prior := server.contestedCut[int(shardID)][int(replicaID)][i]
-						server.contestedCut[int(shardID)][int(replicaID)][i] = golib.Max(prior, int(cut.Cut[i]))
+						server.contestedCut[int(shardID)][int(replicaID)][i] = golib.Max(prior, int(cut))
 					}
 				}
 			}
+			for _, respC := range server.reportResponseChannels {
+				respC <- resp
+			}
 			server.mu.Unlock()
+		case REGISTER:
+			server.viewMu.Lock()
+			server.viewID++
+			resp := &pb.ReportResponse{ViewID: server.viewID}
+			server.viewMu.Unlock()
+			for _, respC := range server.reportResponseChannels {
+				respC <- resp
+			}
+		case FINALIZE:
+			req := &pb.FinalizeRequest{}
+			if err := proto.Unmarshal(entry.Data, req); err != nil {
+				logger.Printf(err.Error())
+				continue
+			}
+			server.viewMu.Lock()
+			server.viewID++
+			resp := &pb.ReportResponse{
+				ViewID:           server.viewID,
+				FinalizeShardIDs: req.ShardIDs,
+			}
+			server.viewMu.Unlock()
+			for _, respC := range server.reportResponseChannels {
+				respC <- resp
+			}
+			for _, shardID := range req.ShardIDs {
+				server.finalizedShards.Add(shardID)
+				server.deleteShard(shardID)
+			}
+		default:
+			logger.Printf("Invalid raft proposal committed")
 		}
 	}
 }
 
-/**
-Extracts all variables necessary in state replication in orderServer.
-*/
+// Extracts all variables necessary in state replication in orderServer.
 func (server *orderServer) getState() orderServerState {
 	server.mu.RLock()
 	defer server.mu.RUnlock()
 	return orderServerState{
 		server.committedCut,
-		server.contestedCut,
 		server.globalSequenceNum,
 		server.shardIds,
 	}
 }
 
-/**
-Overwrites current server data with state data.
-NOTE: assumes that shardIds and numServersPerShard do not change. If they change, then we must recreate channels.
-*/
+// Overwrites current server data with state data.
+// NOTE: assumes that shardIds and numServersPerShard do not change. If they change, then we must recreate channels.
 func (server *orderServer) loadState(state *orderServerState) {
 	server.mu.Lock()
 	defer server.mu.Unlock()
-
 	server.committedCut = state.committedCut
-	server.contestedCut = state.contestedCut
 	server.globalSequenceNum = state.globalSequenceNum
-
-	// TODO: Update loadState
-
 	server.shardIds = state.shardIds
 }
 
-/**
-Returns all stored data.
-*/
+// Returns all stored data.
 func (server *orderServer) getSnapshot() ([]byte, error) {
 	return json.Marshal(server.getState())
 }
 
-/**
-Use snapshot to reload server state.
-*/
+// Use snapshot to reload server state.
 func (server *orderServer) attemptRecoverFromSnapshot() {
 	snapshot, err := server.rc.snapshotter.Load()
 	if err == snap.ErrNoSnapshot {

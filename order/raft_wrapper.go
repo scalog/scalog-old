@@ -16,6 +16,7 @@ package order
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -42,7 +43,7 @@ import (
 
 // A key-value stream backed by raft
 type raftNode struct {
-	proposeC    chan []byte            // proposed messages (k,v)
+	proposeC    chan raftProposal      // proposed messages (k,v)
 	confChangeC chan raftpb.ConfChange // proposed cluster config changes
 	commitC     chan *raftpb.Entry     // entries committed to log (k,v)
 	errorC      chan<- error           // errors from raft session
@@ -86,7 +87,7 @@ var defaultSnapshotCount uint64 = 10000
 // current), then new log entries. To shutdown, close proposeC and read errorC.
 func newRaftNode(id int, peers []string, join bool, getSnapshot func() ([]byte, error)) *raftNode {
 
-	proposeC := make(chan []byte)
+	proposeC := make(chan raftProposal)
 	commitC := make(chan *raftpb.Entry)
 	errorC := make(chan error)
 
@@ -437,7 +438,11 @@ func (rc *raftNode) serveChannels() {
 					rc.proposeC = nil
 				} else {
 					// blocks until accepted by raft state machine
-					rc.node.Propose(context.TODO(), prop)
+					propB, err := json.Marshal(prop)
+					if err != nil {
+						continue
+					}
+					rc.node.Propose(context.TODO(), propB)
 				}
 
 			case cc, ok := <-rc.confChangeC:
@@ -491,13 +496,18 @@ func (rc *raftNode) serveChannels() {
 
 func (rc *raftNode) leaderUpdate(softstate *raft.SoftState) {
 	if softstate != nil {
-		newLeader := softstate.Lead
-		if newLeader != rc.leaderID {
+		if softstate.Lead != rc.leaderID {
 			rc.leaderMu.Lock()
-			rc.leaderID = newLeader
+			rc.leaderID = softstate.Lead
 			rc.leaderMu.Unlock()
 		}
 	}
+}
+
+func (rc *raftNode) isLeader() bool {
+	rc.leaderMu.RLock()
+	defer rc.leaderMu.RUnlock()
+	return rc.leaderID == uint64(rc.id)
 }
 
 func (rc *raftNode) serveRaft() {
