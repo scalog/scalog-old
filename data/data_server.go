@@ -434,6 +434,12 @@ func (server *dataServer) listenForViewUpdates(stream om.Order_RegisterClient) {
 		if err != nil {
 			logger.Printf(err.Error())
 		}
+		if in.FinalizeShardID == server.shardID {
+			server.ticker.Stop()
+			server.notifyAllWaitingClients()
+			server.labelPodAsFinalized()
+			return
+		}
 		server.viewMu.Lock()
 		server.viewID = in.ViewID
 		server.viewMu.Unlock()
@@ -489,13 +495,9 @@ func (server *dataServer) createIntershardPodConnection(podIP string, ch chan me
 				ShardID: server.shardID,
 				Limit:   0,
 			}
-			// Blocks until shard is finalized
 			if _, err := server.orderConnection.Finalize(context.Background(), req); err != nil {
 				logger.Printf(err.Error())
 			}
-			server.ticker.Stop()
-			server.notifyAllWaitingClients()
-			server.labelPodAsFinalized()
 		}
 	}
 }

@@ -34,15 +34,8 @@ type CommittedCut map[int32]*pb.Cut
 // Number of new logs appended within the previous time period
 type Deltas CommittedCut
 
-// ResponseChannels is an array of channels that response to connected aggregators
-type ResponseChannels []chan pb.ReportResponse
-
 // FinalizationMap map<shardID, finalize after k cuts>
 type FinalizationMap map[int32]*pb.FinalizeRequest
-
-// Map<Shard ID, Channels to write responses to when a shard finalization
-// request has been committed>
-type FinalizationResponseChannels map[int32]chan pb.FinalizeResponse
 
 type raftProposalType int
 
@@ -58,21 +51,20 @@ type raftProposal struct {
 }
 
 type orderServer struct {
-	committedCut                 CommittedCut
-	contestedCut                 ContestedCut
-	finalizeMap                  FinalizationMap
-	finalizedShards              *golib.Set32
-	globalSequenceNum            int32
-	shardIds                     *golib.Set
-	numServersPerShard           int
-	mu                           sync.RWMutex
-	finalizationResponseChannels FinalizationResponseChannels
-	aggregatorResponseChannels   ResponseChannels
-	rc                           *raftNode
-	viewID                       int32
-	viewUpdateChannels           []chan *pb.RegisterResponse
-	viewMu                       sync.RWMutex
-	forwardC                     chan *pb.ReportRequest
+	committedCut           CommittedCut
+	contestedCut           ContestedCut
+	finalizeShardRequests  FinalizationMap
+	finalizedShards        *golib.Set32
+	globalSequenceNum      int32
+	shardIds               *golib.Set
+	numServersPerShard     int
+	mu                     sync.RWMutex
+	reportResponseChannels []chan *pb.ReportResponse
+	rc                     *raftNode
+	viewID                 int32
+	viewUpdateChannels     []chan *pb.RegisterResponse
+	viewMu                 sync.RWMutex
+	forwardC               chan *pb.ReportRequest
 }
 
 // Fields in orderServer necessary for state replication. Used in Raft.
@@ -85,20 +77,19 @@ type orderServerState struct {
 
 func newOrderServer(shardIds *golib.Set, numServersPerShard int) *orderServer {
 	return &orderServer{
-		committedCut:                 initCommittedCut(shardIds, numServersPerShard),
-		contestedCut:                 initContestedCut(shardIds, numServersPerShard),
-		finalizeMap:                  make(FinalizationMap),
-		finalizedShards:              golib.NewSet32(),
-		globalSequenceNum:            0,
-		shardIds:                     shardIds,
-		numServersPerShard:           numServersPerShard,
-		mu:                           sync.RWMutex{},
-		aggregatorResponseChannels:   make(ResponseChannels, 0),
-		finalizationResponseChannels: make(FinalizationResponseChannels),
-		viewID:                       0,
-		viewUpdateChannels:           make([]chan *pb.RegisterResponse, 0),
-		viewMu:                       sync.RWMutex{},
-		forwardC:                     make(chan *pb.ReportRequest),
+		committedCut:           initCommittedCut(shardIds, numServersPerShard),
+		contestedCut:           initContestedCut(shardIds, numServersPerShard),
+		finalizeShardRequests:  make(FinalizationMap),
+		finalizedShards:        golib.NewSet32(),
+		globalSequenceNum:      0,
+		shardIds:               shardIds,
+		numServersPerShard:     numServersPerShard,
+		mu:                     sync.RWMutex{},
+		reportResponseChannels: make([]chan *pb.ReportResponse, 0),
+		viewID:                 0,
+		viewUpdateChannels:     make([]chan *pb.RegisterResponse, 0),
+		viewMu:                 sync.RWMutex{},
+		forwardC:               make(chan *pb.ReportRequest),
 	}
 }
 
@@ -178,12 +169,12 @@ func (server *orderServer) updateCommittedCuts() {
 // shardID's by one.
 func (server *orderServer) getShardsToFinalize() []*pb.FinalizeRequest {
 	shardsToFinalize := make([]*pb.FinalizeRequest, 0)
-	for shardID, req := range server.finalizeMap {
+	for shardID, req := range server.finalizeShardRequests {
 		if req.Limit == 0 {
 			shardsToFinalize = append(shardsToFinalize, req)
-			delete(server.finalizeMap, shardID)
+			delete(server.finalizeShardRequests, shardID)
 		} else {
-			server.finalizeMap[shardID].Limit--
+			server.finalizeShardRequests[shardID].Limit--
 		}
 
 	}
@@ -202,8 +193,7 @@ func (server *orderServer) mergeContestedCuts() {
 	shardsToFinalize := server.getShardsToFinalize()
 	// Keep track of shards that we have finalized so that we ignore pipelined requests
 	for _, req := range shardsToFinalize {
-		resp := &pb.FinalizeResponse{ShardID: req.ShardID}
-		propData, err := proto.Marshal(resp)
+		propData, err := proto.Marshal(req)
 		if err != nil {
 			logger.Printf("Could not marshal finalization request message")
 		}
@@ -214,11 +204,11 @@ func (server *orderServer) mergeContestedCuts() {
 		server.rc.proposeC <- prop
 	}
 	// broadcast cuts
-	resp := pb.ReportResponse{
+	resp := &pb.ReportResponse{
 		CommitedCuts: server.committedCut,
 		StartGSN:     server.globalSequenceNum,
 	}
-	for _, ch := range server.aggregatorResponseChannels {
+	for _, ch := range server.reportResponseChannels {
 		ch <- resp
 	}
 }
@@ -278,21 +268,6 @@ func (server *orderServer) deleteShard(shardID int32) bool {
 }
 
 ////////////////////// DATA LAYER GRPC FUNCTIONS
-
-/**
-Reports final cuts to the data layer periodically. Reads from ResponseChannels and feeds into the stream.
-*/
-func (server *orderServer) respondToDataReplica(stream pb.Order_ReportServer) {
-	// We serve responses from this channel back to the aggregator
-	ch := make(chan pb.ReportResponse)
-	server.aggregatorResponseChannels = append(server.aggregatorResponseChannels, ch)
-	for response := range ch {
-		err := stream.Send(&response)
-		if err != nil {
-			logger.Panicf(err.Error())
-		}
-	}
-}
 
 /**
 proposalRaftBatch periodically proposes that raft batch and send a globalCut
@@ -365,27 +340,36 @@ func (server *orderServer) listenForRaftCommits() {
 					}
 				}
 			}
-			for _, respC := range server.aggregatorResponseChannels {
-				respC <- *resp
+			for _, respC := range server.reportResponseChannels {
+				respC <- resp
 			}
 			server.mu.Unlock()
 		case REGISTER:
 			server.viewMu.Lock()
 			server.viewID++
-			viewUpdate := &pb.RegisterResponse{ViewID: server.viewID}
+			viewUpdate := &pb.RegisterResponse{
+				ViewID:          server.viewID,
+				FinalizeShardID: -1,
+			}
 			for _, viewUpdateC := range server.viewUpdateChannels {
 				viewUpdateC <- viewUpdate
 			}
 			server.viewMu.Unlock()
 		case FINALIZE:
-			resp := &pb.FinalizeResponse{}
-			if err := proto.Unmarshal(entry.Data, resp); err != nil {
+			req := &pb.FinalizeRequest{}
+			if err := proto.Unmarshal(entry.Data, req); err != nil {
 				logger.Printf(err.Error())
 				continue
 			}
-			server.finalizationResponseChannels[resp.ShardID] <- *resp
-			server.finalizedShards.Add(resp.ShardID)
-			server.deleteShard(resp.ShardID)
+			resp := &pb.RegisterResponse{
+				ViewID:          server.viewID,
+				FinalizeShardID: req.ShardID,
+			}
+			for _, viewUpdateC := range server.viewUpdateChannels {
+				viewUpdateC <- resp
+			}
+			server.finalizedShards.Add(req.ShardID)
+			server.deleteShard(req.ShardID)
 		default:
 			logger.Printf("Invalid raft proposal")
 		}

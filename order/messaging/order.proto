@@ -44,6 +44,7 @@ message RegisterRequest {
 
 message RegisterResponse {
     int32 viewID = 1;
+    int32 finalizeShardID = 2;
 }
 
 message FinalizeRequest {
@@ -51,6 +52,4 @@ message FinalizeRequest {
     int32 limit = 2;
 }
 
-message FinalizeResponse {
-    int32 shardID = 1;
-}
+message FinalizeResponse {}

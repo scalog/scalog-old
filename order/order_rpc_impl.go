@@ -27,6 +27,18 @@ func (server *orderServer) Report(stream pb.Order_ReportServer) error {
 	}
 }
 
+func (server *orderServer) respondToDataReplica(stream pb.Order_ReportServer) {
+	respC := make(chan *pb.ReportResponse)
+	server.mu.Lock()
+	server.reportResponseChannels = append(server.reportResponseChannels, respC)
+	server.mu.Unlock()
+	for resp := range respC {
+		if err := stream.Send(resp); err != nil {
+			return
+		}
+	}
+}
+
 func (server *orderServer) Forward(stream pb.Order_ForwardServer) error {
 	for {
 		req, err := stream.Recv()
@@ -71,8 +83,8 @@ func (server *orderServer) Register(req *pb.RegisterRequest, stream pb.Order_Reg
 		proposalData: propData,
 	}
 	server.rc.proposeC <- prop
-	server.viewMu.Lock()
 	viewC := make(chan *pb.RegisterResponse)
+	server.viewMu.Lock()
 	server.viewUpdateChannels = append(server.viewUpdateChannels, viewC)
 	server.viewMu.Unlock()
 	for viewUpdate := range viewC {
@@ -84,12 +96,10 @@ func (server *orderServer) Register(req *pb.RegisterRequest, stream pb.Order_Reg
 }
 
 func (server *orderServer) Finalize(ctx context.Context, req *pb.FinalizeRequest) (*pb.FinalizeResponse, error) {
-	if _, in := server.finalizeMap[req.ShardID]; !in {
-		server.finalizeMap[req.ShardID] = req
-		server.finalizationResponseChannels[req.ShardID] = make(chan pb.FinalizeResponse)
-
+	if _, in := server.finalizeShardRequests[req.ShardID]; !in {
+		server.mu.Lock()
+		server.finalizeShardRequests[req.ShardID] = req
+		server.mu.Unlock()
 	}
-	resp := <-server.finalizationResponseChannels[req.ShardID]
-	delete(server.finalizationResponseChannels, req.ShardID)
-	return &resp, nil
+	return &pb.FinalizeResponse{}, nil
 }
