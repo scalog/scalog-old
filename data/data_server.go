@@ -213,13 +213,8 @@ func (server *dataServer) notifyAllWaitingClients() {
 	}
 }
 
-/*
-	Listens on the given stream for finalized cuts from the ordering layer.
-
-	Two actions occur upon receipt of a ordering layer report: 1) We update our cut
-	2) We are finalized.
-*/
-func (server *dataServer) receiveFinalizedCuts(stream om.Order_ReportClient, sendTicker *time.Ticker) {
+// Listens for committed cuts and view updates from the order layer.
+func (server *dataServer) receiveCommittedCuts(stream om.Order_ReportClient, sendTicker *time.Ticker) {
 	for {
 		in, err := stream.Recv()
 		if err == io.EOF {
@@ -437,7 +432,7 @@ func (server *dataServer) setupOrderLayerComunication() {
 	interval := time.Duration(viper.GetInt("batch_interval"))
 	server.ticker = time.NewTicker(interval * time.Millisecond)
 	go server.sendLocalCutsToOrder(stream, server.ticker)
-	go server.receiveFinalizedCuts(stream, server.ticker)
+	go server.receiveCommittedCuts(stream, server.ticker)
 }
 
 func containsID(finalizeShardIDS []int32, shardID int32) bool {
