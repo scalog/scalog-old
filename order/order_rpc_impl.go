@@ -6,7 +6,6 @@ import (
 	"io"
 
 	"github.com/golang/protobuf/proto"
-	"github.com/scalog/scalog/internal/pkg/golib"
 	pb "github.com/scalog/scalog/order/messaging"
 )
 
@@ -19,9 +18,6 @@ func (server *orderServer) Report(stream pb.Order_ReportServer) error {
 		}
 		if err != nil {
 			return err
-		}
-		for shardID := range req.Shards {
-			server.addShard(int(shardID))
 		}
 		server.forwardC <- req
 	}
@@ -50,26 +46,10 @@ func (server *orderServer) Forward(stream pb.Order_ForwardServer) error {
 		}
 		if !server.rc.isLeader() {
 			// Forward request to leader so it is not lost
-			for shardID := range req.Shards {
-				server.addShard(int(shardID))
-			}
 			server.forwardC <- req
 			return fmt.Errorf("Forwarded to non-leader: update leader connection")
 		}
-		server.updateState(req)
-	}
-}
-
-func (server *orderServer) updateState(req *pb.ReportRequest) {
-	server.mu.Lock()
-	defer server.mu.Unlock()
-	for shardID, shardView := range req.Shards {
-		for replicaID, cut := range shardView.Replicas {
-			for i := 0; i < server.numServersPerShard; i++ {
-				prior := server.contestedCut[int(shardID)][int(replicaID)][i]
-				server.contestedCut[int(shardID)][int(replicaID)][i] = golib.Max(prior, int(cut.Cut[i]))
-			}
-		}
+		server.updateContestedCut(req)
 	}
 }
 

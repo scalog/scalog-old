@@ -113,6 +113,16 @@ func (server *orderServer) connectToLeader() {
 	}
 }
 
+func (server *orderServer) listenForForwards() {
+	for req := range server.forwardC {
+		if !server.rc.isLeader() {
+			go server.connectToLeader()
+			return
+		}
+		server.updateContestedCut(req)
+	}
+}
+
 ////////////// INITIALIZERS
 
 func initCommittedCut(shardIds *golib.Set, numServersPerShard int) CommittedCut {
@@ -128,16 +138,34 @@ func initCommittedCut(shardIds *golib.Set, numServersPerShard int) CommittedCut 
 func initContestedCut(shardIds *golib.Set, numServersPerShard int) ContestedCut {
 	cut := make(ContestedCut)
 	for shardID := range shardIds.Iterable() {
-		shardCuts := make(ShardCuts, numServersPerShard)
-		for i := 0; i < numServersPerShard; i++ {
-			shardCuts[i] = make(Cut, numServersPerShard)
-		}
-		cut[shardID] = shardCuts
+		cut[shardID] = newShardCuts(numServersPerShard)
 	}
 	return cut
 }
 
+func newShardCuts(numReplicasPerShard int) ShardCuts {
+	s := make(ShardCuts, numReplicasPerShard)
+	for i := 0; i < numReplicasPerShard; i++ {
+		s[i] = make(Cut, numReplicasPerShard)
+	}
+	return s
+}
+
 ////////////// ORDER SERVER STATE MUTATORS
+
+func (server *orderServer) updateContestedCut(req *pb.ReportRequest) {
+	server.mu.Lock()
+	defer server.mu.Unlock()
+	for shardID, shardView := range req.Shards {
+		server.addShard(int(shardID))
+		for replicaID, cut := range shardView.Replicas {
+			for i := 0; i < server.numServersPerShard; i++ {
+				prior := server.contestedCut[int(shardID)][int(replicaID)][i]
+				server.contestedCut[int(shardID)][int(replicaID)][i] = golib.Max(prior, int(cut.Cut[i]))
+			}
+		}
+	}
+}
 
 // updateCommittedCuts updates both the GSN and committedCuts
 func (server *orderServer) updateCommittedCuts() {
@@ -163,7 +191,7 @@ func (server *orderServer) updateCommittedCuts() {
 func (server *orderServer) getShardsToFinalize() []*pb.FinalizeRequest {
 	shardsToFinalize := make([]*pb.FinalizeRequest, 0)
 	for shardID, req := range server.finalizeShardRequests {
-		if req.Limit == 0 {
+		if req.Limit <= 0 {
 			shardsToFinalize = append(shardsToFinalize, req)
 			delete(server.finalizeShardRequests, shardID)
 		} else {
@@ -174,58 +202,29 @@ func (server *orderServer) getShardsToFinalize() []*pb.FinalizeRequest {
 	return shardsToFinalize
 }
 
-/**
-Adds a shard with the shardID to the ordering layer. Does nothing if the shardID already exists.
-
-This operation acquires a writer lock.
-*/
+// Assumes server lock is acquired
 func (server *orderServer) addShard(shardID int) {
-	//Use read lock to determine if adding is necessary
-	server.mu.RLock()
-	exists := server.shardIds.Contains(shardID)
-	server.mu.RUnlock()
-	if exists {
-		return //Do not attempt to add a shard that was already added
+	in := server.shardIds.Contains(int(shardID))
+	if in {
+		return
 	}
-
-	server.mu.Lock()
-	defer server.mu.Unlock()
-
 	server.shardIds.Add(shardID)
-	server.committedCut[int32(shardID)] = &pb.Cut{
-		Cut: make([]int32, server.numServersPerShard),
-	}
-	server.contestedCut[shardID] = make(ShardCuts, server.numServersPerShard)
-
-	for i := 0; i < server.numServersPerShard; i++ {
-		server.contestedCut[shardID][i] = make(Cut, server.numServersPerShard)
-	}
+	server.committedCut[int32(shardID)] = &pb.Cut{Cut: make([]int32, server.numServersPerShard)}
+	server.contestedCut[shardID] = newShardCuts(server.numServersPerShard)
 }
 
-/**
-Notifies the shard that it is being finalized, then removes the shardID metadata.
-Does nothing if the shardID does not exist.
-
-@param committed True if the deletion was committed to Raft. Determines whether or not we'll notify
-	the data layer or operator of this deletion.
-@returns Whether or not this shard existed.
-
-NOTE: CALLER MUST ACQUIRE WRITE LOCK
-*/
-func (server *orderServer) deleteShard(shardID int32) bool {
-	exists := server.shardIds.Contains(int(shardID))
-	if !exists {
-		return false //Do not attempt to delete a shard that was already deleted
+func (server *orderServer) deleteShard(shardID int32) {
+	server.mu.RLock()
+	in := server.shardIds.Contains(int(shardID))
+	server.mu.RUnlock()
+	if !in {
+		return
 	}
-
-	// Delete the shard from cuts. A gesture to signify to Raft log that the shard is deleted.
-	// Meaningless to others unless a cut with this deletion is committed (consensus is reached).
+	server.mu.Lock()
+	defer server.mu.Unlock()
+	server.shardIds.Remove(int(shardID))
 	delete(server.committedCut, shardID)
 	delete(server.contestedCut, int(shardID))
-
-	// Cleanup channels used for data layer communication
-	server.shardIds.Remove(int(shardID))
-	return true
 }
 
 func (server *orderServer) proposeGlobalCutToRaft() {
@@ -238,7 +237,6 @@ func (server *orderServer) proposeGlobalCutToRaft() {
 		if !server.rc.isLeader() {
 			continue
 		}
-
 		server.mu.Lock()
 		server.updateCommittedCuts()
 		resp := &pb.ReportResponse{
@@ -261,18 +259,18 @@ func (server *orderServer) proposeGlobalCutToRaft() {
 }
 
 func (server *orderServer) updateFinalizeShardRequests() {
-	finalizeShards := make([]*pb.FinalizeRequest, 0)
+	shardsToFinalize := make([]*pb.FinalizeRequest, 0)
 	server.mu.Lock()
 	for shardID, req := range server.finalizeShardRequests {
 		if req.Limit == 0 {
-			finalizeShards = append(finalizeShards, req)
+			shardsToFinalize = append(shardsToFinalize, req)
 			delete(server.finalizeShardRequests, shardID)
 		} else {
 			server.finalizeShardRequests[shardID].Limit--
 		}
 	}
 	server.mu.Unlock()
-	for _, req := range finalizeShards {
+	for _, req := range shardsToFinalize {
 		propData, err := proto.Marshal(req)
 		if err != nil {
 			logger.Printf("Could not marshal finalization request message")
@@ -286,11 +284,6 @@ func (server *orderServer) updateFinalizeShardRequests() {
 	}
 }
 
-////////////////////// RAFT FUNCTIONS
-
-/**
-Triggered when Raft commits a new message.
-*/
 func (server *orderServer) listenForRaftCommits() {
 	for entry := range server.rc.commitC {
 		if entry == nil {
@@ -301,6 +294,7 @@ func (server *orderServer) listenForRaftCommits() {
 		prop := &raftProposal{}
 		if err := json.Unmarshal(entry.Data, prop); err != nil {
 			logger.Printf(err.Error())
+			continue
 		}
 
 		switch prop.proposalType {
@@ -314,6 +308,7 @@ func (server *orderServer) listenForRaftCommits() {
 			server.committedCut = resp.CommitedCuts
 			server.globalSequenceNum = resp.StartGSN
 			for shardID, replicaCuts := range resp.CommitedCuts {
+				server.addShard(int(shardID))
 				for replicaID, cut := range replicaCuts.Cut {
 					for i := 0; i < server.numServersPerShard; i++ {
 						prior := server.contestedCut[int(shardID)][int(replicaID)][i]
@@ -342,24 +337,25 @@ func (server *orderServer) listenForRaftCommits() {
 				logger.Printf(err.Error())
 				continue
 			}
-			resp := &pb.RegisterResponse{
+			server.viewMu.Lock()
+			server.viewID++
+			viewUpdate := &pb.RegisterResponse{
 				ViewID:          server.viewID,
 				FinalizeShardID: req.ShardID,
 			}
 			for _, viewUpdateC := range server.viewUpdateChannels {
-				viewUpdateC <- resp
+				viewUpdateC <- viewUpdate
 			}
+			server.viewMu.Unlock()
 			server.finalizedShards.Add(req.ShardID)
 			server.deleteShard(req.ShardID)
 		default:
-			logger.Printf("Invalid raft proposal")
+			logger.Printf("Invalid raft proposal committed")
 		}
 	}
 }
 
-/**
-Extracts all variables necessary in state replication in orderServer.
-*/
+// Extracts all variables necessary in state replication in orderServer.
 func (server *orderServer) getState() orderServerState {
 	server.mu.RLock()
 	defer server.mu.RUnlock()
@@ -371,10 +367,8 @@ func (server *orderServer) getState() orderServerState {
 	}
 }
 
-/**
-Overwrites current server data with state data.
-NOTE: assumes that shardIds and numServersPerShard do not change. If they change, then we must recreate channels.
-*/
+// Overwrites current server data with state data.
+// NOTE: assumes that shardIds and numServersPerShard do not change. If they change, then we must recreate channels.
 func (server *orderServer) loadState(state *orderServerState) {
 	server.mu.Lock()
 	defer server.mu.Unlock()
@@ -388,16 +382,12 @@ func (server *orderServer) loadState(state *orderServerState) {
 	server.shardIds = state.shardIds
 }
 
-/**
-Returns all stored data.
-*/
+// Returns all stored data.
 func (server *orderServer) getSnapshot() ([]byte, error) {
 	return json.Marshal(server.getState())
 }
 
-/**
-Use snapshot to reload server state.
-*/
+// Use snapshot to reload server state.
 func (server *orderServer) attemptRecoverFromSnapshot() {
 	snapshot, err := server.rc.snapshotter.Load()
 	if err == snap.ErrNoSnapshot {
