@@ -88,6 +88,7 @@ func newOrderServer(shardIds *golib.Set, numServersPerShard int) *orderServer {
 
 func (server *orderServer) connectToLeader() {
 	if server.rc.isLeader() {
+		server.listenForForwards()
 		return
 	}
 	server.rc.leaderMu.RLock()
@@ -183,23 +184,6 @@ func (server *orderServer) updateCommittedCuts() {
 			server.globalSequenceNum += diff
 		}
 	}
-}
-
-// getShardsToFinalize returns all shardID's bound in this map that
-// are meant to commit in 0 cuts, and decrements all other bound
-// shardID's by one.
-func (server *orderServer) getShardsToFinalize() []*pb.FinalizeRequest {
-	shardsToFinalize := make([]*pb.FinalizeRequest, 0)
-	for shardID, req := range server.finalizeShardRequests {
-		if req.Limit <= 0 {
-			shardsToFinalize = append(shardsToFinalize, req)
-			delete(server.finalizeShardRequests, shardID)
-		} else {
-			server.finalizeShardRequests[shardID].Limit--
-		}
-
-	}
-	return shardsToFinalize
 }
 
 // Assumes server lock is acquired
