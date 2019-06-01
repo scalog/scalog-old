@@ -10,11 +10,8 @@ import (
 	pb "github.com/scalog/scalog/order/messaging"
 )
 
-/**
-Receives messages from the data layer. Spawns response function with a pointer to the stream to respond to data layer with newly committed cuts.
-*/
 func (server *orderServer) Report(stream pb.Order_ReportServer) error {
-	go server.reportResponseRoutine(stream)
+	go server.respondToDataReplica(stream)
 	for {
 		req, err := stream.Recv()
 		if err == io.EOF {
@@ -40,12 +37,16 @@ func (server *orderServer) Forward(stream pb.Order_ForwardServer) error {
 			return err
 		}
 		if !server.rc.isLeader() {
+			// Forward request to leader so it is not lost
+			for shardID := range req.Shards {
+				server.addShard(int(shardID))
+			}
 			server.forwardC <- req
-			return fmt.Errorf("Forward request sent to non-leader")
+			return fmt.Errorf("Forwarded to non-leader: update leader connection")
 		}
 		server.mu.Lock()
-		for shardID, replicaCuts := range req.Shards {
-			for replicaID, cut := range replicaCuts.Replicas {
+		for shardID, shardView := range req.Shards {
+			for replicaID, cut := range shardView.Replicas {
 				for i := 0; i < server.numServersPerShard; i++ {
 					prior := server.contestedCut[int(shardID)][int(replicaID)][i]
 					server.contestedCut[int(shardID)][int(replicaID)][i] = golib.Max(prior, int(cut.Cut[i]))
@@ -70,7 +71,11 @@ func (server *orderServer) Register(req *pb.RegisterRequest, stream pb.Order_Reg
 		proposalData: propData,
 	}
 	server.rc.proposeC <- prop
-	for viewUpdate := range server.viewC {
+	server.viewMu.Lock()
+	viewC := make(chan *pb.RegisterResponse)
+	server.viewUpdateChannels = append(server.viewUpdateChannels, viewC)
+	server.viewMu.Unlock()
+	for viewUpdate := range viewC {
 		if err := stream.Send(viewUpdate); err != nil {
 			return err
 		}

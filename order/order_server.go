@@ -70,7 +70,8 @@ type orderServer struct {
 	aggregatorResponseChannels   ResponseChannels
 	rc                           *raftNode
 	viewID                       int32
-	viewC                        chan *pb.RegisterResponse
+	viewUpdateChannels           []chan *pb.RegisterResponse
+	viewMu                       sync.RWMutex
 	forwardC                     chan *pb.ReportRequest
 }
 
@@ -95,7 +96,8 @@ func newOrderServer(shardIds *golib.Set, numServersPerShard int) *orderServer {
 		aggregatorResponseChannels:   make(ResponseChannels, 0),
 		finalizationResponseChannels: make(FinalizationResponseChannels),
 		viewID:                       0,
-		viewC:                        make(chan *pb.RegisterResponse),
+		viewUpdateChannels:           make([]chan *pb.RegisterResponse, 0),
+		viewMu:                       sync.RWMutex{},
 		forwardC:                     make(chan *pb.ReportRequest),
 	}
 }
@@ -280,7 +282,7 @@ func (server *orderServer) deleteShard(shardID int32) bool {
 /**
 Reports final cuts to the data layer periodically. Reads from ResponseChannels and feeds into the stream.
 */
-func (server *orderServer) reportResponseRoutine(stream pb.Order_ReportServer) {
+func (server *orderServer) respondToDataReplica(stream pb.Order_ReportServer) {
 	// We serve responses from this channel back to the aggregator
 	ch := make(chan pb.ReportResponse)
 	server.aggregatorResponseChannels = append(server.aggregatorResponseChannels, ch)
@@ -368,9 +370,13 @@ func (server *orderServer) listenForRaftCommits() {
 			}
 			server.mu.Unlock()
 		case REGISTER:
+			server.viewMu.Lock()
 			server.viewID++
 			viewUpdate := &pb.RegisterResponse{ViewID: server.viewID}
-			server.viewC <- viewUpdate
+			for _, viewUpdateC := range server.viewUpdateChannels {
+				viewUpdateC <- viewUpdate
+			}
+			server.viewMu.Unlock()
 		case FINALIZE:
 			resp := &pb.FinalizeResponse{}
 			if err := proto.Unmarshal(entry.Data, resp); err != nil {

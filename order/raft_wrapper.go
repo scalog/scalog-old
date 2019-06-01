@@ -496,10 +496,9 @@ func (rc *raftNode) serveChannels() {
 
 func (rc *raftNode) leaderUpdate(softstate *raft.SoftState) {
 	if softstate != nil {
-		newLeader := softstate.Lead
-		if newLeader != rc.leaderID {
+		if softstate.Lead != rc.leaderID {
 			rc.leaderMu.Lock()
-			rc.leaderID = newLeader
+			rc.leaderID = softstate.Lead
 			rc.leaderMu.Unlock()
 		}
 	}
