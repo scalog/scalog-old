@@ -45,7 +45,7 @@ func Start() {
 	go server.connectToLeader()
 
 	messaging.RegisterOrderServer(grpcServer, server)
-	go server.proposalRaftBatch()
+	go server.proposeGlobalCutToRaft()
 	go server.listenForRaftCommits()
 
 	log.Printf("Order layer server available on port %d\n", viper.Get("port"))

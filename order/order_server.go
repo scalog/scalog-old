@@ -8,18 +8,17 @@ import (
 	"sync"
 	"time"
 
-	"go.etcd.io/etcd/raft"
-
 	"github.com/gogo/protobuf/proto"
+	pb "github.com/scalog/scalog/order/messaging"
 	"github.com/spf13/viper"
+	"go.etcd.io/etcd/etcdserver/api/snap"
+	"go.etcd.io/etcd/raft"
 
 	"github.com/scalog/scalog/internal/pkg/golib"
 	"github.com/scalog/scalog/logger"
-	pb "github.com/scalog/scalog/order/messaging"
-	"go.etcd.io/etcd/etcdserver/api/snap"
 )
 
-// Server's view of latest cuts in all servers of the shard
+// Cut is a replica's latest view of cuts for all replicas in its shard
 type Cut []int
 
 // All cuts from all replicas within a shard
@@ -30,12 +29,6 @@ type ContestedCut map[int]ShardCuts
 
 // Map<Shard ID, Cuts in the shard>
 type CommittedCut map[int32]*pb.Cut
-
-// Number of new logs appended within the previous time period
-type Deltas CommittedCut
-
-// FinalizationMap map<shardID, finalize after k cuts>
-type FinalizationMap map[int32]*pb.FinalizeRequest
 
 type raftProposalType int
 
@@ -53,7 +46,7 @@ type raftProposal struct {
 type orderServer struct {
 	committedCut           CommittedCut
 	contestedCut           ContestedCut
-	finalizeShardRequests  FinalizationMap
+	finalizeShardRequests  map[int32]*pb.FinalizeRequest
 	finalizedShards        *golib.Set32
 	globalSequenceNum      int32
 	shardIds               *golib.Set
@@ -79,7 +72,7 @@ func newOrderServer(shardIds *golib.Set, numServersPerShard int) *orderServer {
 	return &orderServer{
 		committedCut:           initCommittedCut(shardIds, numServersPerShard),
 		contestedCut:           initContestedCut(shardIds, numServersPerShard),
-		finalizeShardRequests:  make(FinalizationMap),
+		finalizeShardRequests:  make(map[int32]*pb.FinalizeRequest),
 		finalizedShards:        golib.NewSet32(),
 		globalSequenceNum:      0,
 		shardIds:               shardIds,
@@ -182,38 +175,6 @@ func (server *orderServer) getShardsToFinalize() []*pb.FinalizeRequest {
 }
 
 /**
-Find min cut for each shard and compute changes from last committed cuts.
-Compute global sequence number for each server.
-Broadcasts the new CommittedCuts to data layer.
-
-CAUTION: THE CALLER MUST OBTAIN THE LOCK
-*/
-func (server *orderServer) mergeContestedCuts() {
-	server.updateCommittedCuts()
-	shardsToFinalize := server.getShardsToFinalize()
-	// Keep track of shards that we have finalized so that we ignore pipelined requests
-	for _, req := range shardsToFinalize {
-		propData, err := proto.Marshal(req)
-		if err != nil {
-			logger.Printf("Could not marshal finalization request message")
-		}
-		prop := raftProposal{
-			proposalType: FINALIZE,
-			proposalData: propData,
-		}
-		server.rc.proposeC <- prop
-	}
-	// broadcast cuts
-	resp := &pb.ReportResponse{
-		CommitedCuts: server.committedCut,
-		StartGSN:     server.globalSequenceNum,
-	}
-	for _, ch := range server.reportResponseChannels {
-		ch <- resp
-	}
-}
-
-/**
 Adds a shard with the shardID to the ordering layer. Does nothing if the shardID already exists.
 
 This operation acquires a writer lock.
@@ -267,20 +228,13 @@ func (server *orderServer) deleteShard(shardID int32) bool {
 	return true
 }
 
-////////////////////// DATA LAYER GRPC FUNCTIONS
-
-/**
-proposalRaftBatch periodically proposes that raft batch and send a globalCut
- to the data layer
-*/
-func (server *orderServer) proposalRaftBatch() {
+func (server *orderServer) proposeGlobalCutToRaft() {
 	interval := time.Duration(viper.GetInt("batch_interval"))
 	ticker := time.NewTicker(interval * time.Millisecond)
 	for range ticker.C {
 		if server.rc.node == nil {
 			continue
 		}
-		//do nothing if you're not the leader
 		if !server.rc.isLeader() {
 			continue
 		}
@@ -299,6 +253,33 @@ func (server *orderServer) proposalRaftBatch() {
 		}
 		prop := raftProposal{
 			proposalType: REPORT,
+			proposalData: propData,
+		}
+		server.rc.proposeC <- prop
+		server.updateFinalizeShardRequests()
+	}
+}
+
+func (server *orderServer) updateFinalizeShardRequests() {
+	finalizeShards := make([]*pb.FinalizeRequest, 0)
+	server.mu.Lock()
+	for shardID, req := range server.finalizeShardRequests {
+		if req.Limit == 0 {
+			finalizeShards = append(finalizeShards, req)
+			delete(server.finalizeShardRequests, shardID)
+		} else {
+			server.finalizeShardRequests[shardID].Limit--
+		}
+	}
+	server.mu.Unlock()
+	for _, req := range finalizeShards {
+		propData, err := proto.Marshal(req)
+		if err != nil {
+			logger.Printf("Could not marshal finalization request message")
+			continue
+		}
+		prop := raftProposal{
+			proposalType: FINALIZE,
 			proposalData: propData,
 		}
 		server.rc.proposeC <- prop

@@ -56,16 +56,20 @@ func (server *orderServer) Forward(stream pb.Order_ForwardServer) error {
 			server.forwardC <- req
 			return fmt.Errorf("Forwarded to non-leader: update leader connection")
 		}
-		server.mu.Lock()
-		for shardID, shardView := range req.Shards {
-			for replicaID, cut := range shardView.Replicas {
-				for i := 0; i < server.numServersPerShard; i++ {
-					prior := server.contestedCut[int(shardID)][int(replicaID)][i]
-					server.contestedCut[int(shardID)][int(replicaID)][i] = golib.Max(prior, int(cut.Cut[i]))
-				}
+		server.updateState(req)
+	}
+}
+
+func (server *orderServer) updateState(req *pb.ReportRequest) {
+	server.mu.Lock()
+	defer server.mu.Unlock()
+	for shardID, shardView := range req.Shards {
+		for replicaID, cut := range shardView.Replicas {
+			for i := 0; i < server.numServersPerShard; i++ {
+				prior := server.contestedCut[int(shardID)][int(replicaID)][i]
+				server.contestedCut[int(shardID)][int(replicaID)][i] = golib.Max(prior, int(cut.Cut[i]))
 			}
 		}
-		server.mu.Unlock()
 	}
 }
 
