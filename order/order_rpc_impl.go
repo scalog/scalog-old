@@ -53,30 +53,19 @@ func (server *orderServer) Forward(stream pb.Order_ForwardServer) error {
 	}
 }
 
-func (server *orderServer) Register(req *pb.RegisterRequest, stream pb.Order_RegisterServer) error {
-	resp := &pb.RegisterResponse{ViewID: server.viewID}
-	if err := stream.Send(resp); err != nil {
-		return err
-	}
+func (server *orderServer) Register(ctx context.Context, req *pb.RegisterRequest) (*pb.RegisterResponse, error) {
 	propData, err := proto.Marshal(req)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	prop := raftProposal{
 		proposalType: REGISTER,
 		proposalData: propData,
 	}
 	server.rc.proposeC <- prop
-	viewC := make(chan *pb.RegisterResponse)
-	server.viewMu.Lock()
-	server.viewUpdateChannels = append(server.viewUpdateChannels, viewC)
-	server.viewMu.Unlock()
-	for viewUpdate := range viewC {
-		if err := stream.Send(viewUpdate); err != nil {
-			return err
-		}
-	}
-	return nil
+	server.viewMu.RLock()
+	defer server.viewMu.RUnlock()
+	return &pb.RegisterResponse{ViewID: server.viewID}, nil
 }
 
 func (server *orderServer) Finalize(ctx context.Context, req *pb.FinalizeRequest) (*pb.FinalizeResponse, error) {

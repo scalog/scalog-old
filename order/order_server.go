@@ -55,7 +55,6 @@ type orderServer struct {
 	reportResponseChannels []chan *pb.ReportResponse
 	rc                     *raftNode
 	viewID                 int32
-	viewUpdateChannels     []chan *pb.RegisterResponse
 	viewMu                 sync.RWMutex
 	forwardC               chan *pb.ReportRequest
 }
@@ -79,7 +78,6 @@ func newOrderServer(shardIds *golib.Set, numServersPerShard int) *orderServer {
 		mu:                     sync.RWMutex{},
 		reportResponseChannels: make([]chan *pb.ReportResponse, 0),
 		viewID:                 0,
-		viewUpdateChannels:     make([]chan *pb.RegisterResponse, 0),
 		viewMu:                 sync.RWMutex{},
 		forwardC:               make(chan *pb.ReportRequest),
 	}
@@ -289,6 +287,9 @@ func (server *orderServer) listenForRaftCommits() {
 				logger.Printf(err.Error())
 				continue
 			}
+			server.viewMu.RLock()
+			resp.ViewID = server.viewID
+			server.viewMu.RUnlock()
 			server.mu.Lock()
 			server.committedCut = resp.CommitedCuts
 			server.globalSequenceNum = resp.StartGSN
@@ -308,11 +309,11 @@ func (server *orderServer) listenForRaftCommits() {
 		case REGISTER:
 			server.viewMu.Lock()
 			server.viewID++
-			viewUpdate := &pb.RegisterResponse{ViewID: server.viewID}
-			for _, viewUpdateC := range server.viewUpdateChannels {
-				viewUpdateC <- viewUpdate
-			}
+			resp := &pb.ReportResponse{ViewID: server.viewID}
 			server.viewMu.Unlock()
+			for _, respC := range server.reportResponseChannels {
+				respC <- resp
+			}
 		case FINALIZE:
 			req := &pb.FinalizeRequest{}
 			if err := proto.Unmarshal(entry.Data, req); err != nil {
@@ -321,14 +322,14 @@ func (server *orderServer) listenForRaftCommits() {
 			}
 			server.viewMu.Lock()
 			server.viewID++
-			viewUpdate := &pb.RegisterResponse{
+			resp := &pb.ReportResponse{
 				ViewID:           server.viewID,
 				FinalizeShardIDs: req.ShardIDs,
 			}
-			for _, viewUpdateC := range server.viewUpdateChannels {
-				viewUpdateC <- viewUpdate
-			}
 			server.viewMu.Unlock()
+			for _, respC := range server.reportResponseChannels {
+				respC <- resp
+			}
 			for _, shardID := range req.ShardIDs {
 				server.finalizedShards.Add(shardID)
 				server.deleteShard(shardID)

@@ -229,6 +229,21 @@ func (server *dataServer) receiveFinalizedCuts(stream om.Order_ReportClient, sen
 			logger.Panicf(err.Error())
 		}
 
+		if in.FinalizeShardIDs != nil && containsID(in.FinalizeShardIDs, server.shardID) {
+			server.ticker.Stop()
+			server.notifyAllWaitingClients()
+			server.labelPodAsFinalized()
+			return
+		}
+
+		server.viewMu.Lock()
+		server.viewID = in.ViewID
+		server.viewMu.Unlock()
+
+		if in.CommitedCuts == nil {
+			continue
+		}
+
 		go server.updateBehindClientSubs(in.StartGSN)
 
 		// So we have to do this in sorted order -- sort the keys and then
@@ -406,11 +421,13 @@ func (server *dataServer) setupOrderLayerComunication() {
 		ShardID:   server.shardID,
 		ReplicaID: server.replicaID,
 	}
-	viewStream, err := client.Register(context.Background(), req)
+	resp, err := client.Register(context.Background(), req)
 	if err != nil {
 		logger.Printf(err.Error())
 	}
-	go server.listenForViewUpdates(viewStream)
+	server.viewMu.Lock()
+	server.viewID = resp.ViewID
+	server.viewMu.Unlock()
 
 	stream, err := client.Report(context.Background())
 	if err != nil {
@@ -421,27 +438,6 @@ func (server *dataServer) setupOrderLayerComunication() {
 	server.ticker = time.NewTicker(interval * time.Millisecond)
 	go server.sendLocalCutsToOrder(stream, server.ticker)
 	go server.receiveFinalizedCuts(stream, server.ticker)
-}
-
-func (server *dataServer) listenForViewUpdates(stream om.Order_RegisterClient) {
-	for {
-		in, err := stream.Recv()
-		if err == io.EOF {
-			return
-		}
-		if err != nil {
-			logger.Printf(err.Error())
-		}
-		if in.FinalizeShardIDs != nil && containsID(in.FinalizeShardIDs, server.shardID) {
-			server.ticker.Stop()
-			server.notifyAllWaitingClients()
-			server.labelPodAsFinalized()
-			return
-		}
-		server.viewMu.Lock()
-		server.viewID = in.ViewID
-		server.viewMu.Unlock()
-	}
 }
 
 func containsID(finalizeShardIDS []int32, shardID int32) bool {

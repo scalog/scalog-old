@@ -10,7 +10,7 @@ service Order {
 
     rpc Forward(stream ReportRequest) returns (ReportResponse) {}
 
-    rpc Register(RegisterRequest) returns (stream RegisterResponse) {}
+    rpc Register(RegisterRequest) returns (RegisterResponse) {}
 
     rpc Finalize(FinalizeRequest) returns (FinalizeResponse) {}
 }
@@ -35,6 +35,8 @@ message ReportResponse {
     map<int32, Cut> commitedCuts = 1;
     // GSN to start computing at
     int32 startGSN = 2;
+    int32 viewID = 3;
+    repeated int32 finalizeShardIDs = 4;
 }
 
 message RegisterRequest {
@@ -44,7 +46,6 @@ message RegisterRequest {
 
 message RegisterResponse {
     int32 viewID = 1;
-    repeated int32 finalizeShardIDs = 2;
 }
 
 message FinalizeRequest {
