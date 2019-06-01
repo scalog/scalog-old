@@ -80,10 +80,8 @@ func (server *orderServer) Register(req *pb.RegisterRequest, stream pb.Order_Reg
 }
 
 func (server *orderServer) Finalize(ctx context.Context, req *pb.FinalizeRequest) (*pb.FinalizeResponse, error) {
-	if _, in := server.finalizeShardRequests[req.ShardID]; !in {
-		server.mu.Lock()
-		server.finalizeShardRequests[req.ShardID] = req
-		server.mu.Unlock()
-	}
+	server.mu.Lock()
+	server.finalizeShardRequests = append(server.finalizeShardRequests, req)
+	server.mu.Unlock()
 	return &pb.FinalizeResponse{}, nil
 }

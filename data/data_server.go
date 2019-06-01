@@ -434,7 +434,7 @@ func (server *dataServer) listenForViewUpdates(stream om.Order_RegisterClient) {
 		if err != nil {
 			logger.Printf(err.Error())
 		}
-		if in.FinalizeShardID == server.shardID {
+		if in.FinalizeShardIDs != nil && containsID(in.FinalizeShardIDs, server.shardID) {
 			server.ticker.Stop()
 			server.notifyAllWaitingClients()
 			server.labelPodAsFinalized()
@@ -444,6 +444,15 @@ func (server *dataServer) listenForViewUpdates(stream om.Order_RegisterClient) {
 		server.viewID = in.ViewID
 		server.viewMu.Unlock()
 	}
+}
+
+func containsID(finalizeShardIDS []int32, shardID int32) bool {
+	for _, finalizeShardID := range finalizeShardIDS {
+		if finalizeShardID == shardID {
+			return true
+		}
+	}
+	return false
 }
 
 func (server *dataServer) setupReplicateConnections() {
@@ -492,8 +501,8 @@ func (server *dataServer) createIntershardPodConnection(podIP string, ch chan me
 		if err := stream.Send(&req); err != nil {
 			logger.Printf(err.Error())
 			req := &om.FinalizeRequest{
-				ShardID: server.shardID,
-				Limit:   0,
+				ShardIDs: []int32{server.shardID},
+				Limit:    0,
 			}
 			if _, err := server.orderConnection.Finalize(context.Background(), req); err != nil {
 				logger.Printf(err.Error())

@@ -46,7 +46,7 @@ type raftProposal struct {
 type orderServer struct {
 	committedCut           CommittedCut
 	contestedCut           ContestedCut
-	finalizeShardRequests  map[int32]*pb.FinalizeRequest
+	finalizeShardRequests  []*pb.FinalizeRequest
 	finalizedShards        *golib.Set32
 	globalSequenceNum      int32
 	shardIds               *golib.Set
@@ -63,7 +63,6 @@ type orderServer struct {
 // Fields in orderServer necessary for state replication. Used in Raft.
 type orderServerState struct {
 	committedCut      CommittedCut
-	contestedCut      ContestedCut
 	globalSequenceNum int32
 	shardIds          *golib.Set
 }
@@ -72,7 +71,7 @@ func newOrderServer(shardIds *golib.Set, numServersPerShard int) *orderServer {
 	return &orderServer{
 		committedCut:           initCommittedCut(shardIds, numServersPerShard),
 		contestedCut:           initContestedCut(shardIds, numServersPerShard),
-		finalizeShardRequests:  make(map[int32]*pb.FinalizeRequest),
+		finalizeShardRequests:  make([]*pb.FinalizeRequest, 0),
 		finalizedShards:        golib.NewSet32(),
 		globalSequenceNum:      0,
 		shardIds:               shardIds,
@@ -244,15 +243,17 @@ func (server *orderServer) proposeGlobalCutToRaft() {
 
 func (server *orderServer) updateFinalizeShardRequests() {
 	shardsToFinalize := make([]*pb.FinalizeRequest, 0)
+	shardsPendingFinalize := make([]*pb.FinalizeRequest, 0)
 	server.mu.Lock()
-	for shardID, req := range server.finalizeShardRequests {
-		if req.Limit == 0 {
+	for _, req := range server.finalizeShardRequests {
+		if req.Limit <= 0 {
 			shardsToFinalize = append(shardsToFinalize, req)
-			delete(server.finalizeShardRequests, shardID)
 		} else {
-			server.finalizeShardRequests[shardID].Limit--
+			req.Limit--
+			shardsPendingFinalize = append(shardsPendingFinalize, req)
 		}
 	}
+	server.finalizeShardRequests = shardsPendingFinalize
 	server.mu.Unlock()
 	for _, req := range shardsToFinalize {
 		propData, err := proto.Marshal(req)
@@ -307,10 +308,7 @@ func (server *orderServer) listenForRaftCommits() {
 		case REGISTER:
 			server.viewMu.Lock()
 			server.viewID++
-			viewUpdate := &pb.RegisterResponse{
-				ViewID:          server.viewID,
-				FinalizeShardID: -1,
-			}
+			viewUpdate := &pb.RegisterResponse{ViewID: server.viewID}
 			for _, viewUpdateC := range server.viewUpdateChannels {
 				viewUpdateC <- viewUpdate
 			}
@@ -324,15 +322,17 @@ func (server *orderServer) listenForRaftCommits() {
 			server.viewMu.Lock()
 			server.viewID++
 			viewUpdate := &pb.RegisterResponse{
-				ViewID:          server.viewID,
-				FinalizeShardID: req.ShardID,
+				ViewID:           server.viewID,
+				FinalizeShardIDs: req.ShardIDs,
 			}
 			for _, viewUpdateC := range server.viewUpdateChannels {
 				viewUpdateC <- viewUpdate
 			}
 			server.viewMu.Unlock()
-			server.finalizedShards.Add(req.ShardID)
-			server.deleteShard(req.ShardID)
+			for _, shardID := range req.ShardIDs {
+				server.finalizedShards.Add(shardID)
+				server.deleteShard(shardID)
+			}
 		default:
 			logger.Printf("Invalid raft proposal committed")
 		}
@@ -345,7 +345,6 @@ func (server *orderServer) getState() orderServerState {
 	defer server.mu.RUnlock()
 	return orderServerState{
 		server.committedCut,
-		server.contestedCut,
 		server.globalSequenceNum,
 		server.shardIds,
 	}
@@ -358,7 +357,6 @@ func (server *orderServer) loadState(state *orderServerState) {
 	defer server.mu.Unlock()
 
 	server.committedCut = state.committedCut
-	server.contestedCut = state.contestedCut
 	server.globalSequenceNum = state.globalSequenceNum
 
 	// TODO: Update loadState

@@ -44,11 +44,11 @@ message RegisterRequest {
 
 message RegisterResponse {
     int32 viewID = 1;
-    int32 finalizeShardID = 2;
+    repeated int32 finalizeShardIDs = 2;
 }
 
 message FinalizeRequest {
-    int32 shardID = 1;
+    repeated int32 shardIDs = 1;
     int32 limit = 2;
 }
 
