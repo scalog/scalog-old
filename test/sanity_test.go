@@ -8,13 +8,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/scalog/scalog/data/messaging"
+	"github.com/scalog/scalog/data/datapb"
 	"github.com/scalog/scalog/logger"
 	"google.golang.org/grpc"
 )
 
 // Returns a client for communicating with a Data node running on the specified port
-func getDataClient(port string) messaging.DataClient {
+func getDataClient(port string) datapb.DataClient {
 	var opts []grpc.DialOption
 	opts = append(opts, grpc.WithInsecure())
 
@@ -22,7 +22,7 @@ func getDataClient(port string) messaging.DataClient {
 	if err != nil {
 		panic(err)
 	}
-	client := messaging.NewDataClient(conn)
+	client := datapb.NewDataClient(conn)
 	return client
 }
 
@@ -81,7 +81,7 @@ func TestPut(t *testing.T) {
 	// Create two clients for communicating with the scalog data servers
 	replicaOne := getDataClient("0.0.0.0:8081")
 	replicaTwo := getDataClient("0.0.0.0:8080")
-	appendRequest := messaging.AppendRequest{Cid: 1, Csn: 1, Record: "Hello World"}
+	appendRequest := datapb.AppendRequest{Cid: 1, Csn: 1, Record: "Hello World"}
 
 	time.Sleep(1000 * time.Millisecond)
 
@@ -96,7 +96,7 @@ func TestPut(t *testing.T) {
 		t.Errorf(fmt.Sprintf("Returned global sequence number is not 0. It is %d", resp.Gsn))
 	}
 
-	appendRequest2 := messaging.AppendRequest{Cid: 2, Csn: 1, Record: "i love distributed systems"}
+	appendRequest2 := datapb.AppendRequest{Cid: 2, Csn: 1, Record: "i love distributed systems"}
 	resp2, err := replicaTwo.Append(context.Background(), &appendRequest2)
 	checkError(err, t)
 
