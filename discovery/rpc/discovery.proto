@@ -14,7 +14,8 @@ service Discovery {
 message DiscoverRequest {}
 
 message DiscoverResponse {
-	repeated Shard shards = 1;
+	int32 viewID = 1;
+	repeated Shard shards = 2;
 }
 
 message Shard {
@@ -26,4 +27,5 @@ message DataServer {
 	int32 serverID = 1;
 	int32 port = 2;
 	string ip = 3;
+	bool finalized = 4;
 }

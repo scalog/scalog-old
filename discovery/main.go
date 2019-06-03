@@ -4,13 +4,17 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/scalog/scalog/discovery/rpc"
+	"github.com/scalog/scalog/internal/pkg/golib"
 	"github.com/scalog/scalog/internal/pkg/kube"
 	log "github.com/scalog/scalog/logger"
+	om "github.com/scalog/scalog/order/messaging"
 	"github.com/spf13/viper"
 	"google.golang.org/grpc"
 	health "google.golang.org/grpc/health"
@@ -39,12 +43,66 @@ func Start() {
 	grpcServer.Serve(lis)
 }
 
-type discoveryServer struct {
+type DiscoveryServer struct {
+	mu     sync.RWMutex
+	viewID int32
+	shards map[int32]*rpc.Shard
+
 	client       *kubernetes.Clientset
 	serverLabels metav1.ListOptions
 }
 
-func (ds *discoveryServer) DiscoverServers(ctx context.Context, req *rpc.DiscoverRequest) (*rpc.DiscoverResponse, error) {
+func (ds *DiscoveryServer) Subscribe() {
+	var conn *grpc.ClientConn
+	if viper.GetBool("localRun") {
+		conn = golib.ConnectTo("0.0.0.0:1337")
+	} else {
+		conn = golib.ConnectTo("dns:///scalog-order-service.scalog:" + viper.GetString("orderPort"))
+	}
+	client := om.NewOrderClient(conn)
+	req := &om.SubscribeMetaRequest{}
+	stream, err := client.SubscribeMeta(context.Background(), req)
+	if err != nil {
+		log.Printf(err.Error())
+	}
+	for {
+		meta, err := stream.Recv()
+		if err == io.EOF {
+			return
+		}
+		if err != nil {
+			log.Panicf(err.Error())
+		}
+		ds.mu.Lock()
+		if meta.GetIsSnapshot() {
+			ds.shards = make(map[int32]*rpc.Shard)
+		}
+		for _, id := range meta.GetNewShardIDs() {
+			if _, ok := ds.shards[id]; ok {
+				log.Printf("Trying to add existed shard: %v", id)
+			} else {
+				ds.shards[id] = &rpc.Shard{ShardID: id}
+			}
+		}
+		for _, id := range meta.GetFinalizeShardIDs() {
+			if _, ok := ds.shards[id]; ok {
+			} else {
+				log.Printf("Trying to finalize non-existed shard: %v", id)
+			}
+		}
+		for _, id := range meta.GetRemoveShardIDs() {
+			if _, ok := ds.shards[id]; ok {
+				delete(ds.shards, id)
+			} else {
+				log.Printf("Trying to remove non-existed shard: %v", id)
+			}
+		}
+		ds.viewID = meta.GetViewID()
+		ds.mu.Unlock()
+	}
+}
+
+func (ds *DiscoveryServer) DiscoverServers(ctx context.Context, req *rpc.DiscoverRequest) (*rpc.DiscoverResponse, error) {
 	services, err := ds.client.CoreV1().Services(viper.GetString("namespace")).List(ds.serverLabels)
 	if err != nil {
 		log.Panicf(err.Error())
@@ -85,10 +143,10 @@ func (ds *discoveryServer) DiscoverServers(ctx context.Context, req *rpc.Discove
 	return resp, nil
 }
 
-func newDiscoveryServer() *discoveryServer {
+func newDiscoveryServer() *DiscoveryServer {
 	clientset := kube.InitKubernetesClient()
 	listOptions := metav1.ListOptions{LabelSelector: "role=scalog-exposed-data-service"}
-	ds := &discoveryServer{
+	ds := &DiscoveryServer{
 		client:       clientset,
 		serverLabels: listOptions,
 	}

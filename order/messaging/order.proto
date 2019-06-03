@@ -7,12 +7,10 @@ gRPC for Order layer of Scalog
 */
 service Order {
     rpc Report(stream ReportRequest) returns (stream ReportResponse) {}
-
     rpc Forward(stream ReportRequest) returns (ReportResponse) {}
-
     rpc Register(RegisterRequest) returns (RegisterResponse) {}
-
     rpc Finalize(FinalizeRequest) returns (FinalizeResponse) {}
+    rpc SubscribeMeta(SubscribeMetaRequest) returns (stream SubscribeMetaResponse) {}
 }
 
 message Cut {
@@ -54,3 +52,13 @@ message FinalizeRequest {
 }
 
 message FinalizeResponse {}
+
+message SubscribeMetaRequest {}
+
+message SubscribeMetaResponse {
+    int32 viewID = 1;
+    bool isSnapshot = 2;
+    repeated int32 newShardIDs = 3;
+    repeated int32 finalizeShardIDs = 4;
+    repeated int32 removeShardIDs = 5;
+}
