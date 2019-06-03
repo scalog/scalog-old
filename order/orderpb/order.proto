@@ -13,7 +13,7 @@ service Order {
 }
 
 message Cut {
-    // Array of len numReplicas 
+    // Array of len numReplicas
     repeated int32 cut = 1;
 }
 
@@ -24,7 +24,7 @@ message ShardView {
 
 message ReportRequest {
     // Key: ShardID, Value: Shard cuts
-    map<int32, ShardView> shards = 1;    
+    map<int32, ShardView> shards = 1;
 }
 
 message ReportResponse {

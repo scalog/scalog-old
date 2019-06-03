@@ -1,4 +1,4 @@
-# Create a shared voluem resource for storing all 
+# Create a shared voluem resource for storing all
 # logged data on stable storage
 kind: PersistentVolume
 apiVersion: v1

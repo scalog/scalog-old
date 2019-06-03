@@ -5,7 +5,7 @@ package discpb;
 /*
 gRPC for Discovery of Scalog
 
-Queries should return the list of live data servers of Scalog. 
+Queries should return the list of live data servers of Scalog.
 */
 service Discovery {
 	rpc DiscoverServers (DiscoverRequest) returns (DiscoverResponse) {}

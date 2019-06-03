@@ -13,7 +13,7 @@ while ! [[ "$isPrimary" =~ ^(yes|no)$ ]]
 do
   read -p $'\e[33mIs this the primary machine? (yes/no):\e[0m' isPrimary
   echo -e "${RED}Enter a valid string${NC}"
-done 
+done
 
 echo "Installing docker on this local machine"
 
@@ -102,7 +102,7 @@ fi
 echo -e "${GREEN}Successfully installed kubeadm!!!${NC}\n"
 
 if [ $isPrimary == "yes" ]
-then 
+then
   echo "Bootstrapping kubernetes cluster..."
 
   kubeout=$(sudo kubeadm init --pod-network-cidr=10.244.0.0/16)
@@ -130,7 +130,7 @@ then
   echo -e $kubeout
   echo -e "${GREEN}Kubernetes cluster successfully bootstrapped!${NC}"
   echo -e "${YELLOW}Copy paste the kubeadm script output into the other servers in this cluster. It should look something like kubeadm join 130.127.133.78:6443 --token nrorf3.vdp46o3fa75ykvch \ --discovery-token-ca-cert-hash sha256:aeab241dce8a6d3eb9e0b6dc98aa39342357f9b3f204d281bb87e526afb4691a"
-  
+
   read -p $'\e[33mPress enter when the other nodes have joined the cluster:\e[0m'
 
   echo "Starting Scalog..."
@@ -161,7 +161,7 @@ then
   kubectl create -f operator/operator.yaml
   kubectl create -f operator/crds/scalog_v1alpha1_scalogservice_cr.yaml
 
-else 
+else
   # Follower
   echo -e "${YELLOW}Copy and paste the kubeadm join script received from the primary machine. It should look something like: kubeadm join 130.127.133.78:6443 --token nrorf3.vdp46o3fa75ykvch --discovery-token-ca-cert-hash sha256:aeab241dce8a6d3eb9e0b6dc98aa39342357f9b3f204d281bb87e526afb4691a. It helps if you put sudo before it.${NC}"
 fi
