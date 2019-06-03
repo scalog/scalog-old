@@ -9,7 +9,7 @@ import (
 	"github.com/scalog/scalog/internal/pkg/golib"
 	"github.com/scalog/scalog/internal/pkg/kube"
 	log "github.com/scalog/scalog/logger"
-	"github.com/scalog/scalog/order/messaging"
+	"github.com/scalog/scalog/order/orderpb"
 	"github.com/spf13/viper"
 	"google.golang.org/grpc"
 	health "google.golang.org/grpc/health"
@@ -44,7 +44,7 @@ func Start() {
 	server.rc = rc
 	go server.connectToLeader()
 
-	messaging.RegisterOrderServer(grpcServer, server)
+	orderpb.RegisterOrderServer(grpcServer, server)
 	go server.proposeGlobalCutToRaft()
 	go server.listenForRaftCommits()
 

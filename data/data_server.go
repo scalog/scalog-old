@@ -12,10 +12,10 @@ import (
 	"github.com/scalog/scalog/internal/pkg/kube"
 	"github.com/scalog/scalog/order"
 
-	datapb "github.com/scalog/scalog/data/datapb"
+	"github.com/scalog/scalog/data/datapb"
 	"github.com/scalog/scalog/data/storage"
 	"github.com/scalog/scalog/logger"
-	om "github.com/scalog/scalog/order/messaging"
+	"github.com/scalog/scalog/order/orderpb"
 	"github.com/spf13/viper"
 	"google.golang.org/grpc"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -98,7 +98,7 @@ type dataServer struct {
 	// Map from gsn to committed record
 	committedRecords map[int32]string
 	// Connection to node in order layer
-	orderConnection om.OrderClient
+	orderConnection orderpb.OrderClient
 	// Ticker for sending and receiving cuts to the order layer
 	ticker *time.Ticker
 }
@@ -141,7 +141,7 @@ func newDataServer(replicaID, shardID int32, replicaCount int) *dataServer {
 	Periodically sends a vector composed of the length of this server's buffers to
 	the ordering layer. Only sends if any new messages were received by this shard
 */
-func (server *dataServer) sendLocalCutsToOrder(stream om.Order_ReportClient, ticker *time.Ticker) {
+func (server *dataServer) sendLocalCutsToOrder(stream orderpb.Order_ReportClient, ticker *time.Ticker) {
 	// Keeps track of previous ordering layer reports
 	sent := make([]int32, server.replicaCount)
 	for i := range sent {
@@ -160,10 +160,10 @@ func (server *dataServer) sendLocalCutsToOrder(stream om.Order_ReportClient, tic
 			continue
 		}
 
-		reportReq := &om.ReportRequest{
-			Shards: map[int32]*om.ShardView{
+		reportReq := &orderpb.ReportRequest{
+			Shards: map[int32]*orderpb.ShardView{
 				server.shardID: {
-					Replicas: map[int32]*om.Cut{
+					Replicas: map[int32]*orderpb.Cut{
 						server.replicaID: {
 							Cut: cut,
 						},
@@ -214,7 +214,7 @@ func (server *dataServer) notifyAllWaitingClients() {
 }
 
 // Listens for committed cuts and view updates from the order layer.
-func (server *dataServer) receiveCommittedCuts(stream om.Order_ReportClient, sendTicker *time.Ticker) {
+func (server *dataServer) receiveCommittedCuts(stream orderpb.Order_ReportClient, sendTicker *time.Ticker) {
 	for {
 		in, err := stream.Recv()
 		if err == io.EOF {
@@ -409,10 +409,10 @@ func (server *dataServer) setupOrderLayerComunication() {
 		conn = golib.ConnectTo("dns:///scalog-order-service.scalog:" + viper.GetString("orderPort"))
 	}
 
-	client := om.NewOrderClient(conn)
+	client := orderpb.NewOrderClient(conn)
 	server.orderConnection = client
 
-	req := &om.RegisterRequest{
+	req := &orderpb.RegisterRequest{
 		ShardID:   server.shardID,
 		ReplicaID: server.replicaID,
 	}
@@ -489,7 +489,7 @@ func (server *dataServer) createIntershardPodConnection(podIP string, ch chan da
 	for req := range ch {
 		if err := stream.Send(&req); err != nil {
 			logger.Printf(err.Error())
-			req := &om.FinalizeRequest{
+			req := &orderpb.FinalizeRequest{
 				ShardIDs: []int32{server.shardID},
 				Limit:    0,
 			}

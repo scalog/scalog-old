@@ -6,10 +6,10 @@ import (
 	"io"
 
 	"github.com/golang/protobuf/proto"
-	pb "github.com/scalog/scalog/order/messaging"
+	"github.com/scalog/scalog/order/orderpb"
 )
 
-func (server *orderServer) Report(stream pb.Order_ReportServer) error {
+func (server *orderServer) Report(stream orderpb.Order_ReportServer) error {
 	go server.respondToDataReplica(stream)
 	for {
 		req, err := stream.Recv()
@@ -23,8 +23,8 @@ func (server *orderServer) Report(stream pb.Order_ReportServer) error {
 	}
 }
 
-func (server *orderServer) respondToDataReplica(stream pb.Order_ReportServer) {
-	respC := make(chan *pb.ReportResponse)
+func (server *orderServer) respondToDataReplica(stream orderpb.Order_ReportServer) {
+	respC := make(chan *orderpb.ReportResponse)
 	server.mu.Lock()
 	server.reportResponseChannels = append(server.reportResponseChannels, respC)
 	server.mu.Unlock()
@@ -35,7 +35,7 @@ func (server *orderServer) respondToDataReplica(stream pb.Order_ReportServer) {
 	}
 }
 
-func (server *orderServer) Forward(stream pb.Order_ForwardServer) error {
+func (server *orderServer) Forward(stream orderpb.Order_ForwardServer) error {
 	for {
 		req, err := stream.Recv()
 		if err == io.EOF {
@@ -53,7 +53,7 @@ func (server *orderServer) Forward(stream pb.Order_ForwardServer) error {
 	}
 }
 
-func (server *orderServer) Register(ctx context.Context, req *pb.RegisterRequest) (*pb.RegisterResponse, error) {
+func (server *orderServer) Register(ctx context.Context, req *orderpb.RegisterRequest) (*orderpb.RegisterResponse, error) {
 	propData, err := proto.Marshal(req)
 	if err != nil {
 		return nil, err
@@ -65,12 +65,12 @@ func (server *orderServer) Register(ctx context.Context, req *pb.RegisterRequest
 	server.rc.proposeC <- prop
 	server.viewMu.RLock()
 	defer server.viewMu.RUnlock()
-	return &pb.RegisterResponse{ViewID: server.viewID}, nil
+	return &orderpb.RegisterResponse{ViewID: server.viewID}, nil
 }
 
-func (server *orderServer) Finalize(ctx context.Context, req *pb.FinalizeRequest) (*pb.FinalizeResponse, error) {
+func (server *orderServer) Finalize(ctx context.Context, req *orderpb.FinalizeRequest) (*orderpb.FinalizeResponse, error) {
 	server.mu.Lock()
 	server.finalizeShardRequests = append(server.finalizeShardRequests, req)
 	server.mu.Unlock()
-	return &pb.FinalizeResponse{}, nil
+	return &orderpb.FinalizeResponse{}, nil
 }

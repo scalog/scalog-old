@@ -15,7 +15,7 @@ import (
 
 	"github.com/scalog/scalog/internal/pkg/golib"
 	"github.com/scalog/scalog/logger"
-	pb "github.com/scalog/scalog/order/messaging"
+	"github.com/scalog/scalog/order/orderpb"
 )
 
 // Cut is a replica's latest view of cuts for all replicas in its shard
@@ -28,7 +28,7 @@ type ShardCuts []Cut
 type ContestedCut map[int]ShardCuts
 
 // Map<Shard ID, Cuts in the shard>
-type CommittedCut map[int32]*pb.Cut
+type CommittedCut map[int32]*orderpb.Cut
 
 type raftProposalType int
 
@@ -46,17 +46,17 @@ type raftProposal struct {
 type orderServer struct {
 	committedCut           CommittedCut
 	contestedCut           ContestedCut
-	finalizeShardRequests  []*pb.FinalizeRequest
+	finalizeShardRequests  []*orderpb.FinalizeRequest
 	finalizedShards        *golib.Set32
 	globalSequenceNum      int32
 	shardIds               *golib.Set
 	numServersPerShard     int
 	mu                     sync.RWMutex
-	reportResponseChannels []chan *pb.ReportResponse
+	reportResponseChannels []chan *orderpb.ReportResponse
 	rc                     *raftNode
 	viewID                 int32
 	viewMu                 sync.RWMutex
-	forwardC               chan *pb.ReportRequest
+	forwardC               chan *orderpb.ReportRequest
 }
 
 // Fields in orderServer necessary for state replication. Used in Raft.
@@ -68,18 +68,18 @@ type orderServerState struct {
 
 func newOrderServer(shardIds *golib.Set, numServersPerShard int) *orderServer {
 	return &orderServer{
-		committedCut:           initCommittedCut(shardIds, numServersPerShard),
-		contestedCut:           initContestedCut(shardIds, numServersPerShard),
-		finalizeShardRequests:  make([]*pb.FinalizeRequest, 0),
-		finalizedShards:        golib.NewSet32(),
-		globalSequenceNum:      0,
-		shardIds:               shardIds,
-		numServersPerShard:     numServersPerShard,
-		mu:                     sync.RWMutex{},
-		reportResponseChannels: make([]chan *pb.ReportResponse, 0),
+		committedCut:          initCommittedCut(shardIds, numServersPerShard),
+		contestedCut:          initContestedCut(shardIds, numServersPerShard),
+		finalizeShardRequests: make([]*orderpb.FinalizeRequest, 0),
+		finalizedShards:       golib.NewSet32(),
+		globalSequenceNum:     0,
+		shardIds:              shardIds,
+		numServersPerShard:    numServersPerShard,
+		mu:                    sync.RWMutex{},
+		reportResponseChannels: make([]chan *orderpb.ReportResponse, 0),
 		viewID:                 0,
 		viewMu:                 sync.RWMutex{},
-		forwardC:               make(chan *pb.ReportRequest),
+		forwardC:               make(chan *orderpb.ReportRequest),
 	}
 }
 
@@ -97,7 +97,7 @@ func (server *orderServer) connectToLeader() {
 	}
 	address := strings.TrimPrefix(server.rc.peers[leaderID-1], "http://")
 	conn := golib.ConnectTo(address)
-	client := pb.NewOrderClient(conn)
+	client := orderpb.NewOrderClient(conn)
 	stream, err := client.Forward(context.Background())
 	if err != nil {
 		logger.Printf(err.Error())
@@ -126,7 +126,7 @@ func (server *orderServer) listenForForwards() {
 func initCommittedCut(shardIds *golib.Set, numServersPerShard int) CommittedCut {
 	cut := make(CommittedCut)
 	for shardID := range shardIds.Iterable() {
-		cut[int32(shardID)] = &pb.Cut{
+		cut[int32(shardID)] = &orderpb.Cut{
 			Cut: make([]int32, numServersPerShard),
 		}
 	}
@@ -151,7 +151,7 @@ func newShardCuts(numReplicasPerShard int) ShardCuts {
 
 ////////////// ORDER SERVER STATE MUTATORS
 
-func (server *orderServer) updateContestedCut(req *pb.ReportRequest) {
+func (server *orderServer) updateContestedCut(req *orderpb.ReportRequest) {
 	server.mu.Lock()
 	defer server.mu.Unlock()
 	for shardID, shardView := range req.Shards {
@@ -190,7 +190,7 @@ func (server *orderServer) addShard(shardID int) {
 		return
 	}
 	server.shardIds.Add(shardID)
-	server.committedCut[int32(shardID)] = &pb.Cut{Cut: make([]int32, server.numServersPerShard)}
+	server.committedCut[int32(shardID)] = &orderpb.Cut{Cut: make([]int32, server.numServersPerShard)}
 	server.contestedCut[shardID] = newShardCuts(server.numServersPerShard)
 }
 
@@ -220,7 +220,7 @@ func (server *orderServer) proposeGlobalCutToRaft() {
 		}
 		server.mu.Lock()
 		server.updateCommittedCuts()
-		resp := &pb.ReportResponse{
+		resp := &orderpb.ReportResponse{
 			CommitedCuts: server.committedCut,
 			StartGSN:     server.globalSequenceNum,
 		}
@@ -240,8 +240,8 @@ func (server *orderServer) proposeGlobalCutToRaft() {
 }
 
 func (server *orderServer) updateFinalizeShardRequests() {
-	shardsToFinalize := make([]*pb.FinalizeRequest, 0)
-	shardsPendingFinalize := make([]*pb.FinalizeRequest, 0)
+	shardsToFinalize := make([]*orderpb.FinalizeRequest, 0)
+	shardsPendingFinalize := make([]*orderpb.FinalizeRequest, 0)
 	server.mu.Lock()
 	for _, req := range server.finalizeShardRequests {
 		if req.Limit <= 0 {
@@ -282,7 +282,7 @@ func (server *orderServer) listenForRaftCommits() {
 
 		switch prop.proposalType {
 		case REPORT:
-			resp := &pb.ReportResponse{}
+			resp := &orderpb.ReportResponse{}
 			if err := proto.Unmarshal(entry.Data, resp); err != nil {
 				logger.Printf(err.Error())
 				continue
@@ -309,20 +309,20 @@ func (server *orderServer) listenForRaftCommits() {
 		case REGISTER:
 			server.viewMu.Lock()
 			server.viewID++
-			resp := &pb.ReportResponse{ViewID: server.viewID}
+			resp := &orderpb.ReportResponse{ViewID: server.viewID}
 			server.viewMu.Unlock()
 			for _, respC := range server.reportResponseChannels {
 				respC <- resp
 			}
 		case FINALIZE:
-			req := &pb.FinalizeRequest{}
+			req := &orderpb.FinalizeRequest{}
 			if err := proto.Unmarshal(entry.Data, req); err != nil {
 				logger.Printf(err.Error())
 				continue
 			}
 			server.viewMu.Lock()
 			server.viewID++
-			resp := &pb.ReportResponse{
+			resp := &orderpb.ReportResponse{
 				ViewID:           server.viewID,
 				FinalizeShardIDs: req.ShardIDs,
 			}
