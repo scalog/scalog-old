@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/scalog/scalog/discovery/rpc"
+	"github.com/scalog/scalog/discovery/discpb"
 	"github.com/scalog/scalog/internal/pkg/kube"
 	log "github.com/scalog/scalog/logger"
 	"github.com/spf13/viper"
@@ -34,7 +34,7 @@ func Start() {
 	healthServer.Resume()
 	healthgrpc.RegisterHealthServer(grpcServer, healthServer)
 
-	rpc.RegisterDiscoveryServer(grpcServer, newDiscoveryServer())
+	discpb.RegisterDiscoveryServer(grpcServer, newDiscoveryServer())
 	log.Printf("Discovery server available on %d\n", viper.Get("port"))
 	grpcServer.Serve(lis)
 }
@@ -44,12 +44,12 @@ type discoveryServer struct {
 	serverLabels metav1.ListOptions
 }
 
-func (ds *discoveryServer) DiscoverServers(ctx context.Context, req *rpc.DiscoverRequest) (*rpc.DiscoverResponse, error) {
+func (ds *discoveryServer) DiscoverServers(ctx context.Context, req *discpb.DiscoverRequest) (*discpb.DiscoverResponse, error) {
 	services, err := ds.client.CoreV1().Services(viper.GetString("namespace")).List(ds.serverLabels)
 	if err != nil {
 		log.Panicf(err.Error())
 	}
-	serversByShardID := make(map[int32][]*rpc.DataServer)
+	serversByShardID := make(map[int32][]*discpb.DataServer)
 	for _, service := range services.Items {
 		parts := strings.Split(service.Name, "-")
 		shardID, err := strconv.ParseInt(parts[len(parts)-2], 10, 32)
@@ -63,23 +63,23 @@ func (ds *discoveryServer) DiscoverServers(ctx context.Context, req *rpc.Discove
 		if len(service.Spec.Ports) != 1 {
 			return nil, errors.New("expected only a single port service for each data server")
 		}
-		server := &rpc.DataServer{
+		server := &discpb.DataServer{
 			ServerID: int32(serverID),
 			Port:     service.Spec.Ports[0].NodePort,
 			Ip:       service.Spec.ClusterIP,
 		}
 		serversByShardID[int32(shardID)] = append(serversByShardID[int32(shardID)], server)
 	}
-	shards, shardsIndex := make([]*rpc.Shard, len(serversByShardID)), 0
+	shards, shardsIndex := make([]*discpb.Shard, len(serversByShardID)), 0
 	for shardID, servers := range serversByShardID {
-		shard := &rpc.Shard{
+		shard := &discpb.Shard{
 			ShardID: shardID,
 			Servers: servers,
 		}
 		shards[shardsIndex] = shard
 		shardsIndex++
 	}
-	resp := &rpc.DiscoverResponse{
+	resp := &discpb.DiscoverResponse{
 		Shards: shards,
 	}
 	return resp, nil

@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package rpc;
+package discpb;
 
 /*
 gRPC for Discovery of Scalog

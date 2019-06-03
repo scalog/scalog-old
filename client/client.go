@@ -14,7 +14,7 @@ import (
 	"gopkg.in/yaml.v2"
 
 	"github.com/scalog/scalog/data/datapb"
-	discovery "github.com/scalog/scalog/discovery/rpc"
+	"github.com/scalog/scalog/discovery/discpb"
 	"google.golang.org/grpc"
 )
 
@@ -27,7 +27,7 @@ type CommittedRecord struct {
 }
 
 // ShardPolicy determines which records are appended to which shards.
-type ShardPolicy func(shards []*discovery.Shard, record string) (server *discovery.Shard)
+type ShardPolicy func(shards []*discpb.Shard, record string) (server *discpb.Shard)
 
 // Client interacts with the Scalog API.
 type Client struct {
@@ -50,7 +50,7 @@ type Client struct {
 	// Version of the client's view
 	viewID int32
 	// Slice of live data servers grouped by shard.
-	view []*discovery.Shard
+	view []*discpb.Shard
 	// Mutex for accessing viewID and view
 	viewMu sync.RWMutex
 	// Configuration meta-data specified in config.yaml
@@ -202,7 +202,7 @@ func assignClientID() int32 {
 }
 
 // defaultShardPolicy returns a random shard.
-func defaultShardPolicy(shards []*discovery.Shard, record string) *discovery.Shard {
+func defaultShardPolicy(shards []*discpb.Shard, record string) *discpb.Shard {
 	seed := rand.NewSource(time.Now().UnixNano())
 	return shards[rand.New(seed).Intn(len(shards))]
 }
@@ -224,7 +224,7 @@ func parseConfig() (*config, error) {
 
 // subscribeToServer subscribes to a data server and sends CommittedRecords in
 // order to the subscribeChan
-func (c *Client) subscribeToServer(server *discovery.DataServer, gsn int32) error {
+func (c *Client) subscribeToServer(server *discpb.DataServer, gsn int32) error {
 	opts := []grpc.DialOption{grpc.WithInsecure()}
 	conn, err := grpc.Dial(getAddressOfServer(server), opts...)
 	if err != nil {
@@ -280,7 +280,7 @@ func (c *Client) respond() {
 
 // trimFromServer deletes records before a global sequence number from a data
 // server.
-func (c *Client) trimFromServer(server *discovery.DataServer, gsn int32) error {
+func (c *Client) trimFromServer(server *discpb.DataServer, gsn int32) error {
 	opts := []grpc.DialOption{grpc.WithInsecure()}
 	conn, err := grpc.Dial(getAddressOfServer(server), opts...)
 	if err != nil {
@@ -303,7 +303,7 @@ func (c *Client) trimFromServer(server *discovery.DataServer, gsn int32) error {
 }
 
 // readFromServer reads a record with a global sequence number from a server.
-func (c *Client) readFromServer(server *discovery.DataServer, gsn int32) (string, error) {
+func (c *Client) readFromServer(server *discpb.DataServer, gsn int32) (string, error) {
 	opts := []grpc.DialOption{grpc.WithInsecure()}
 	conn, err := grpc.Dial(getAddressOfServer(server), opts...)
 	if err != nil {
@@ -335,8 +335,8 @@ func (c *Client) updateView() error {
 		return err
 	}
 	defer conn.Close()
-	discoveryClient := discovery.NewDiscoveryClient(conn)
-	req := &discovery.DiscoverRequest{}
+	discoveryClient := discpb.NewDiscoveryClient(conn)
+	req := &discpb.DiscoverRequest{}
 	resp, err := discoveryClient.DiscoverServers(context.Background(), req)
 	if err != nil {
 		return err
@@ -346,13 +346,13 @@ func (c *Client) updateView() error {
 }
 
 // getRandomServerInShard returns a random server in a shard.
-func getRandomServerInShard(shard *discovery.Shard) *discovery.DataServer {
+func getRandomServerInShard(shard *discpb.Shard) *discpb.DataServer {
 	seed := rand.NewSource(time.Now().UnixNano())
 	return shard.Servers[rand.New(seed).Intn(len(shard.Servers))]
 }
 
 // getAddressOfServer returns the address of a server as a string.
-func getAddressOfServer(server *discovery.DataServer) string {
+func getAddressOfServer(server *discpb.DataServer) string {
 	return fmt.Sprintf("%s:%d", server.Ip, server.Port)
 }
 
