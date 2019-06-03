@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/scalog/scalog/data/datapb"
-	"github.com/scalog/scalog/logger"
+	log "github.com/scalog/scalog/logger"
 	"google.golang.org/grpc"
 )
 
@@ -74,7 +74,7 @@ func TestPut(t *testing.T) {
 		t.Errorf(err.Error())
 	}
 
-	logger.Printf("Waiting for services to start")
+	log.Printf("Waiting for services to start")
 	// Wait for services to start
 	time.Sleep(1000 * time.Millisecond)
 

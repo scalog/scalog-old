@@ -19,7 +19,7 @@ import (
 	"os"
 
 	homedir "github.com/mitchellh/go-homedir"
-	"github.com/scalog/scalog/logger"
+	log "github.com/scalog/scalog/logger"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -104,6 +104,6 @@ name, while checking for unbound variable errors
 */
 func bindEnvVar(envVar string) {
 	if err := viper.BindEnv(envVar); err != nil {
-		logger.Panicf(fmt.Sprintf("err binding %s. %s", envVar, err.Error()))
+		log.Panicf("err binding %s. %s", envVar, err.Error())
 	}
 }

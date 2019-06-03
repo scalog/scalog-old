@@ -1,7 +1,8 @@
 package golib
 
 import (
-	"github.com/scalog/scalog/logger"
+	log "github.com/scalog/scalog/logger"
+
 	"google.golang.org/grpc"
 )
 
@@ -13,10 +14,10 @@ func ConnectTo(url string) *grpc.ClientConn {
 	// TODO: Use a secured connection
 	opts = append(opts, grpc.WithInsecure(), grpc.WithBlock())
 
-	logger.Printf("Dialing " + url)
+	log.Printf("Dialing " + url)
 	conn, err := grpc.Dial(url, opts...)
 	if err != nil {
-		logger.Printf(err.Error())
+		log.Printf(err.Error())
 		return nil
 	}
 	return conn

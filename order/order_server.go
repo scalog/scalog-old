@@ -8,14 +8,14 @@ import (
 	"sync"
 	"time"
 
+	"github.com/scalog/scalog/internal/pkg/golib"
+	log "github.com/scalog/scalog/logger"
+	"github.com/scalog/scalog/order/orderpb"
+
 	"github.com/gogo/protobuf/proto"
 	"github.com/spf13/viper"
 	"go.etcd.io/etcd/etcdserver/api/snap"
 	"go.etcd.io/etcd/raft"
-
-	"github.com/scalog/scalog/internal/pkg/golib"
-	"github.com/scalog/scalog/logger"
-	"github.com/scalog/scalog/order/orderpb"
 )
 
 // Cut is a replica's latest view of cuts for all replicas in its shard
@@ -92,7 +92,7 @@ func (server *orderServer) connectToLeader() {
 	leaderID := server.rc.leaderID
 	server.rc.leaderMu.RUnlock()
 	if leaderID == raft.None {
-		logger.Printf("Failed to connect to leader: no leader")
+		log.Printf("Failed to connect to leader: no leader")
 		return
 	}
 	address := strings.TrimPrefix(server.rc.peers[leaderID-1], "http://")
@@ -100,11 +100,11 @@ func (server *orderServer) connectToLeader() {
 	client := orderpb.NewOrderClient(conn)
 	stream, err := client.Forward(context.Background())
 	if err != nil {
-		logger.Printf(err.Error())
+		log.Printf(err.Error())
 	}
 	for req := range server.forwardC {
 		if err := stream.Send(req); err != nil {
-			logger.Printf(err.Error())
+			log.Printf(err.Error())
 			go server.connectToLeader()
 			return
 		}
@@ -227,7 +227,7 @@ func (server *orderServer) proposeGlobalCutToRaft() {
 		server.mu.Unlock()
 		propData, err := json.Marshal(resp)
 		if err != nil {
-			logger.Printf(err.Error())
+			log.Printf(err.Error())
 			continue
 		}
 		prop := raftProposal{
@@ -256,7 +256,7 @@ func (server *orderServer) updateFinalizeShardRequests() {
 	for _, req := range shardsToFinalize {
 		propData, err := proto.Marshal(req)
 		if err != nil {
-			logger.Printf("Could not marshal finalization request message")
+			log.Printf("Could not marshal finalization request message")
 			continue
 		}
 		prop := raftProposal{
@@ -276,7 +276,7 @@ func (server *orderServer) listenForRaftCommits() {
 
 		prop := &raftProposal{}
 		if err := json.Unmarshal(entry.Data, prop); err != nil {
-			logger.Printf(err.Error())
+			log.Printf(err.Error())
 			continue
 		}
 
@@ -284,7 +284,7 @@ func (server *orderServer) listenForRaftCommits() {
 		case REPORT:
 			resp := &orderpb.ReportResponse{}
 			if err := proto.Unmarshal(entry.Data, resp); err != nil {
-				logger.Printf(err.Error())
+				log.Printf(err.Error())
 				continue
 			}
 			server.viewMu.RLock()
@@ -317,7 +317,7 @@ func (server *orderServer) listenForRaftCommits() {
 		case FINALIZE:
 			req := &orderpb.FinalizeRequest{}
 			if err := proto.Unmarshal(entry.Data, req); err != nil {
-				logger.Printf(err.Error())
+				log.Printf(err.Error())
 				continue
 			}
 			server.viewMu.Lock()
@@ -335,7 +335,7 @@ func (server *orderServer) listenForRaftCommits() {
 				server.deleteShard(shardID)
 			}
 		default:
-			logger.Printf("Invalid raft proposal committed")
+			log.Printf("Invalid raft proposal committed")
 		}
 	}
 }
@@ -373,15 +373,15 @@ func (server *orderServer) attemptRecoverFromSnapshot() {
 		return
 	}
 	if err != nil {
-		logger.Panicf(err.Error())
+		log.Panicf(err.Error())
 	}
 
-	logger.Printf("Ordering layer attempting to recover from Raft snapshot")
+	log.Printf("Ordering layer attempting to recover from Raft snapshot")
 	state := &orderServerState{}
 	err = json.Unmarshal(snapshot.Data, state)
 
 	if err != nil {
-		logger.Panicf(err.Error())
+		log.Panicf(err.Error())
 	}
 
 	server.loadState(state)

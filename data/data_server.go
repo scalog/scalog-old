@@ -8,14 +8,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/scalog/scalog/internal/pkg/golib"
-	"github.com/scalog/scalog/internal/pkg/kube"
-	"github.com/scalog/scalog/order"
-
 	"github.com/scalog/scalog/data/datapb"
 	"github.com/scalog/scalog/data/storage"
-	"github.com/scalog/scalog/logger"
+	"github.com/scalog/scalog/internal/pkg/golib"
+	"github.com/scalog/scalog/internal/pkg/kube"
+	log "github.com/scalog/scalog/logger"
+	"github.com/scalog/scalog/order"
 	"github.com/scalog/scalog/order/orderpb"
+
 	"github.com/spf13/viper"
 	"google.golang.org/grpc"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -112,7 +112,7 @@ communication channels with them. Only then will this server become ready to tak
 func newDataServer(replicaID, shardID int32, replicaCount int) *dataServer {
 	disk, err := storage.NewStorage("disk")
 	if err != nil {
-		logger.Printf("Failed to initialize storage: " + err.Error())
+		log.Printf("Failed to initialize storage: " + err.Error())
 	}
 	s := &dataServer{
 		replicaID:              replicaID,
@@ -221,7 +221,7 @@ func (server *dataServer) receiveCommittedCuts(stream orderpb.Order_ReportClient
 			return
 		}
 		if err != nil {
-			logger.Panicf(err.Error())
+			log.Panicf(err.Error())
 		}
 
 		if in.FinalizeShardIDs != nil && containsID(in.FinalizeShardIDs, server.shardID) {
@@ -282,7 +282,7 @@ func (server *dataServer) receiveCommittedCuts(stream orderpb.Order_ReportClient
 							err := server.disk.Commit(server.serverBuffers[idx][int(offset)+i].lsn, int64(cutGSN))
 							if err != nil {
 								// TODO handle error
-								logger.Printf(err.Error())
+								log.Printf(err.Error())
 							}
 						}
 						server.serverBuffers[idx][int(offset)+i].gsn = cutGSN
@@ -418,7 +418,7 @@ func (server *dataServer) setupOrderLayerComunication() {
 	}
 	resp, err := client.Register(context.Background(), req)
 	if err != nil {
-		logger.Printf(err.Error())
+		log.Printf(err.Error())
 	}
 	server.viewMu.Lock()
 	server.viewID = resp.ViewID
@@ -426,7 +426,7 @@ func (server *dataServer) setupOrderLayerComunication() {
 
 	stream, err := client.Report(context.Background())
 	if err != nil {
-		logger.Printf(err.Error())
+		log.Printf(err.Error())
 	}
 
 	interval := time.Duration(viper.GetInt("batch_interval"))
@@ -448,7 +448,7 @@ func (server *dataServer) setupReplicateConnections() {
 	shardName := viper.GetString("shardGroup")
 	var shardPods []chan datapb.ReplicateRequest
 	if !viper.GetBool("localRun") {
-		logger.Printf("Server %d searching for other %d servers in %s\n", server.replicaID, server.replicaCount, shardName)
+		log.Printf("Server %d searching for other %d servers in %s\n", server.replicaID, server.replicaCount, shardName)
 		server.kubeClient = kube.InitKubernetesClient()
 		pods := kube.GetShardPods(server.kubeClient, "tier="+shardName, server.replicaCount, viper.GetString("namespace"))
 		for _, pod := range pods.Items {
@@ -460,7 +460,7 @@ func (server *dataServer) setupReplicateConnections() {
 		}
 	} else {
 		// TODO: Make more extensible for testing -- right now we assume only two replicas in our local cluster
-		logger.Printf("Server %d searching for other %d servers on your local machine\n", server.replicaID, server.replicaCount)
+		log.Printf("Server %d searching for other %d servers on your local machine\n", server.replicaID, server.replicaCount)
 		shardPods = append(shardPods, make(chan datapb.ReplicateRequest))
 		if viper.GetString("port") == "8080" {
 			go server.createIntershardPodConnection("0.0.0.0:8081", shardPods[len(shardPods)-1])
@@ -482,19 +482,19 @@ func (server *dataServer) createIntershardPodConnection(podIP string, ch chan da
 	client := datapb.NewDataClient(conn)
 	stream, err := client.Replicate(context.Background())
 	if err != nil {
-		logger.Panicf("Couldn't create a conection with server replica")
+		log.Panicf("Couldn't create a conection with server replica")
 	}
-	logger.Printf("Successfully set up channels with " + podIP)
+	log.Printf("Successfully set up channels with " + podIP)
 
 	for req := range ch {
 		if err := stream.Send(&req); err != nil {
-			logger.Printf(err.Error())
+			log.Printf(err.Error())
 			req := &orderpb.FinalizeRequest{
 				ShardIDs: []int32{server.shardID},
 				Limit:    0,
 			}
 			if _, err := server.orderConnection.Finalize(context.Background(), req); err != nil {
-				logger.Printf(err.Error())
+				log.Printf(err.Error())
 			}
 		}
 	}

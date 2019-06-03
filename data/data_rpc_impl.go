@@ -6,11 +6,11 @@ import (
 	"io"
 
 	"github.com/scalog/scalog/data/datapb"
-	"github.com/scalog/scalog/logger"
+	log "github.com/scalog/scalog/logger"
 )
 
 func (server *dataServer) Append(c context.Context, req *datapb.AppendRequest) (*datapb.AppendResponse, error) {
-	logger.Printf("Got append request from client %d", req.Cid)
+	log.Printf("Got append request from client %d", req.Cid)
 	if server.isFinalized {
 		return nil, errors.New("this shard has been finalized. No further appends will be permitted")
 	}
@@ -67,7 +67,7 @@ func (server *dataServer) Replicate(stream datapb.Data_ReplicateServer) error {
 }
 
 func (server *dataServer) Subscribe(req *datapb.SubscribeRequest, stream datapb.Data_SubscribeServer) error {
-	logger.Printf("Received SUBSCRIBE request from client starting at GSN %d", req.SubscriptionGsn)
+	log.Printf("Received SUBSCRIBE request from client starting at GSN %d", req.SubscriptionGsn)
 
 	clientSub := &clientSubscription{
 		state:       BEHIND,
@@ -80,11 +80,11 @@ func (server *dataServer) Subscribe(req *datapb.SubscribeRequest, stream datapb.
 	// Respond to client with committed records
 	for resp := range clientSub.respChan {
 		if err := stream.Send(&resp); err != nil {
-			logger.Printf("Failed to respond to client for record with GSN [%d]", resp.Gsn)
+			log.Printf("Failed to respond to client for record with GSN [%d]", resp.Gsn)
 			clientSub.state = CLOSED
 			return err
 		}
-		logger.Printf("Responded to client subscription for record with GSN [%d]", resp.Gsn)
+		log.Printf("Responded to client subscription for record with GSN [%d]", resp.Gsn)
 	}
 
 	clientSub.state = CLOSED
@@ -92,11 +92,11 @@ func (server *dataServer) Subscribe(req *datapb.SubscribeRequest, stream datapb.
 }
 
 func (server *dataServer) Trim(c context.Context, req *datapb.TrimRequest) (*datapb.TrimResponse, error) {
-	logger.Printf("Received TRIM request from client starting at GSN %d", req.Gsn)
+	log.Printf("Received TRIM request from client starting at GSN %d", req.Gsn)
 
 	err := server.disk.Delete(int64(req.Gsn))
 	if err != nil {
-		logger.Printf("Failed to trim starting at GSN %d", req.Gsn)
+		log.Printf("Failed to trim starting at GSN %d", req.Gsn)
 		return nil, err
 	}
 	server.viewMu.RLock()
@@ -111,7 +111,7 @@ func (server *dataServer) Read(c context.Context, req *datapb.ReadRequest) (*dat
 	}
 	record, err := server.disk.ReadGSN(int64(req.Gsn))
 	if err != nil {
-		logger.Printf("Failed to read record with GSN %d", req.Gsn)
+		log.Printf("Failed to read record with GSN %d", req.Gsn)
 		return nil, err
 	}
 	server.viewMu.RLock()

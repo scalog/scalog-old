@@ -1,8 +1,9 @@
 package kube
 
 import (
-	"github.com/scalog/scalog/logger"
 	"time"
+
+	log "github.com/scalog/scalog/logger"
 
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -18,12 +19,12 @@ func InitKubernetesClient() *kubernetes.Clientset {
 	// creates the in-cluster config
 	config, err := rest.InClusterConfig()
 	if err != nil {
-		logger.Panicf(err.Error())
+		log.Panicf(err.Error())
 	}
 	// creates the clientset
 	clientset, err := kubernetes.NewForConfig(config)
 	if err != nil {
-		logger.Panicf(err.Error())
+		log.Panicf(err.Error())
 	}
 	return clientset
 }
@@ -50,7 +51,7 @@ func GetShardPods(clientset *kubernetes.Clientset, labelSelector string, expecte
 	for {
 		pods, err := clientset.CoreV1().Pods(namespace).List(query)
 		if err != nil {
-			logger.Panicf(err.Error())
+			log.Panicf(err.Error())
 		}
 		if len(pods.Items) == expectedPodCount && AllPodsAreRunning(pods.Items) {
 			return pods
