@@ -15,6 +15,22 @@ func Printf(format string, v ...interface{}) {
 	logger.Printf(format, v...)
 }
 
+func Debugf(format string, v ...interface{}) {
+	logger.Printf(format, v...)
+}
+
+func InfoF(format string, v ...interface{}) {
+	logger.Printf(format, v...)
+}
+
+func Warningf(format string, v ...interface{}) {
+	logger.Printf(format, v...)
+}
+
+func Errorf(format string, v ...interface{}) {
+	logger.Printf(format, v...)
+}
+
 func Fatalf(format string, v ...interface{}) {
 	logger.Fatalf(format, v...)
 }

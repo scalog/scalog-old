@@ -7,11 +7,8 @@ gRPC for Order layer of Scalog
 */
 service Order {
     rpc Report(stream ReportRequest) returns (stream ReportResponse) {}
-
     rpc Forward(stream ReportRequest) returns (ReportResponse) {}
-
     rpc Register(RegisterRequest) returns (RegisterResponse) {}
-
     rpc Finalize(FinalizeRequest) returns (FinalizeResponse) {}
 }
 
