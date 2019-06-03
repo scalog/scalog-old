@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package messaging;
+package datapb;
 
 /*
 gRPC for Data layer of Scalog

@@ -13,7 +13,7 @@ import (
 
 	"gopkg.in/yaml.v2"
 
-	data "github.com/scalog/scalog/data/messaging"
+	"github.com/scalog/scalog/data/datapb"
 	discovery "github.com/scalog/scalog/discovery/rpc"
 	"google.golang.org/grpc"
 )
@@ -119,9 +119,9 @@ func (c *Client) AppendToShard(record string) (int32, int32, error) {
 		return -1, -1, err
 	}
 	defer conn.Close()
-	dataClient := data.NewDataClient(conn)
+	dataClient := datapb.NewDataClient(conn)
 	c.appendMu.Lock()
-	req := &data.AppendRequest{
+	req := &datapb.AppendRequest{
 		Cid:    c.clientID,
 		Csn:    c.nextCsn,
 		Record: record,
@@ -231,8 +231,8 @@ func (c *Client) subscribeToServer(server *discovery.DataServer, gsn int32) erro
 		return err
 	}
 	defer conn.Close()
-	dataClient := data.NewDataClient(conn)
-	req := &data.SubscribeRequest{SubscriptionGsn: gsn}
+	dataClient := datapb.NewDataClient(conn)
+	req := &datapb.SubscribeRequest{SubscriptionGsn: gsn}
 	stream, err := dataClient.Subscribe(context.Background(), req)
 	if err != nil {
 		return err
@@ -287,8 +287,8 @@ func (c *Client) trimFromServer(server *discovery.DataServer, gsn int32) error {
 		return err
 	}
 	defer conn.Close()
-	dataClient := data.NewDataClient(conn)
-	req := &data.TrimRequest{Gsn: gsn}
+	dataClient := datapb.NewDataClient(conn)
+	req := &datapb.TrimRequest{Gsn: gsn}
 	resp, err := dataClient.Trim(context.Background(), req)
 	c.viewMu.Lock()
 	if resp.ViewID != c.viewID {
@@ -310,8 +310,8 @@ func (c *Client) readFromServer(server *discovery.DataServer, gsn int32) (string
 		return "", err
 	}
 	defer conn.Close()
-	dataClient := data.NewDataClient(conn)
-	req := &data.ReadRequest{Gsn: gsn}
+	dataClient := datapb.NewDataClient(conn)
+	req := &datapb.ReadRequest{Gsn: gsn}
 	resp, err := dataClient.Read(context.Background(), req)
 	if err != nil {
 		return "", err

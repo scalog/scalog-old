@@ -5,13 +5,11 @@ import (
 	"errors"
 	"io"
 
+	"github.com/scalog/scalog/data/datapb"
 	"github.com/scalog/scalog/logger"
-
-	"github.com/scalog/scalog/data/messaging"
-	pb "github.com/scalog/scalog/data/messaging"
 )
 
-func (server *dataServer) Append(c context.Context, req *pb.AppendRequest) (*pb.AppendResponse, error) {
+func (server *dataServer) Append(c context.Context, req *datapb.AppendRequest) (*datapb.AppendResponse, error) {
 	logger.Printf("Got append request from client %d", req.Cid)
 	if server.isFinalized {
 		return nil, errors.New("this shard has been finalized. No further appends will be permitted")
@@ -32,7 +30,7 @@ func (server *dataServer) Append(c context.Context, req *pb.AppendRequest) (*pb.
 	server.serverBuffers[server.replicaID] = append(server.serverBuffers[server.replicaID], *r)
 	server.mu.Unlock()
 
-	replicateRequest := &messaging.ReplicateRequest{
+	replicateRequest := &datapb.ReplicateRequest{
 		ServerID: int32(server.replicaID),
 		Record:   req.Record,
 	}
@@ -44,7 +42,7 @@ func (server *dataServer) Append(c context.Context, req *pb.AppendRequest) (*pb.
 		return nil, errors.New("append request failed due to shard finalization. Please retry the append operation at a different shard")
 	}
 	server.viewMu.RLock()
-	resp := &pb.AppendResponse{
+	resp := &datapb.AppendResponse{
 		Csn:    r.csn,
 		Gsn:    gsn,
 		ViewID: server.viewID,
@@ -53,7 +51,7 @@ func (server *dataServer) Append(c context.Context, req *pb.AppendRequest) (*pb.
 	return resp, nil
 }
 
-func (server *dataServer) Replicate(stream pb.Data_ReplicateServer) error {
+func (server *dataServer) Replicate(stream datapb.Data_ReplicateServer) error {
 	for {
 		in, err := stream.Recv()
 		if err == io.EOF {
@@ -68,12 +66,12 @@ func (server *dataServer) Replicate(stream pb.Data_ReplicateServer) error {
 	}
 }
 
-func (server *dataServer) Subscribe(req *pb.SubscribeRequest, stream pb.Data_SubscribeServer) error {
+func (server *dataServer) Subscribe(req *datapb.SubscribeRequest, stream datapb.Data_SubscribeServer) error {
 	logger.Printf("Received SUBSCRIBE request from client starting at GSN %d", req.SubscriptionGsn)
 
 	clientSub := &clientSubscription{
 		state:       BEHIND,
-		respChan:    make(chan messaging.SubscribeResponse),
+		respChan:    make(chan datapb.SubscribeResponse),
 		startGsn:    req.SubscriptionGsn,
 		firstNewGsn: -1,
 	}
@@ -93,7 +91,7 @@ func (server *dataServer) Subscribe(req *pb.SubscribeRequest, stream pb.Data_Sub
 	return nil
 }
 
-func (server *dataServer) Trim(c context.Context, req *pb.TrimRequest) (*pb.TrimResponse, error) {
+func (server *dataServer) Trim(c context.Context, req *datapb.TrimRequest) (*datapb.TrimResponse, error) {
 	logger.Printf("Received TRIM request from client starting at GSN %d", req.Gsn)
 
 	err := server.disk.Delete(int64(req.Gsn))
@@ -102,14 +100,14 @@ func (server *dataServer) Trim(c context.Context, req *pb.TrimRequest) (*pb.Trim
 		return nil, err
 	}
 	server.viewMu.RLock()
-	resp := &pb.TrimResponse{ViewID: server.viewID}
+	resp := &datapb.TrimResponse{ViewID: server.viewID}
 	server.viewMu.RUnlock()
 	return resp, nil
 }
 
-func (server *dataServer) Read(c context.Context, req *pb.ReadRequest) (*pb.ReadResponse, error) {
+func (server *dataServer) Read(c context.Context, req *datapb.ReadRequest) (*datapb.ReadResponse, error) {
 	if record, in := server.committedRecords[req.Gsn]; in {
-		return &pb.ReadResponse{Record: record}, nil
+		return &datapb.ReadResponse{Record: record}, nil
 	}
 	record, err := server.disk.ReadGSN(int64(req.Gsn))
 	if err != nil {
@@ -117,7 +115,7 @@ func (server *dataServer) Read(c context.Context, req *pb.ReadRequest) (*pb.Read
 		return nil, err
 	}
 	server.viewMu.RLock()
-	resp := &pb.ReadResponse{
+	resp := &datapb.ReadResponse{
 		Record: record,
 		ViewID: server.viewID,
 	}

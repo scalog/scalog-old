@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"net"
 
-	"github.com/scalog/scalog/data/messaging"
+	"github.com/scalog/scalog/data/datapb"
 	log "github.com/scalog/scalog/logger"
 	"github.com/spf13/viper"
 	"google.golang.org/grpc"
@@ -25,7 +25,7 @@ func Start() {
 	healthServer := health.NewServer()
 	healthServer.Resume()
 	healthgrpc.RegisterHealthServer(grpcServer, healthServer)
-	messaging.RegisterDataServer(grpcServer, newDataServer(viper.GetInt32("id"), viper.GetInt32("shardID"), viper.GetInt("replica_count")))
+	datapb.RegisterDataServer(grpcServer, newDataServer(viper.GetInt32("id"), viper.GetInt32("shardID"), viper.GetInt("replica_count")))
 	log.Printf("Data layer server %d available on %d\n", viper.Get("id"), viper.Get("port"))
 	grpcServer.Serve(lis)
 }

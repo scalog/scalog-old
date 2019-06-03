@@ -12,7 +12,7 @@ import (
 	"github.com/scalog/scalog/internal/pkg/kube"
 	"github.com/scalog/scalog/order"
 
-	"github.com/scalog/scalog/data/messaging"
+	datapb "github.com/scalog/scalog/data/datapb"
 	"github.com/scalog/scalog/data/storage"
 	"github.com/scalog/scalog/logger"
 	om "github.com/scalog/scalog/order/messaging"
@@ -54,7 +54,7 @@ type clientSubscription struct {
 	// gRPC connection has been closed
 	state clientSubscriptionState
 	// Channel on which to send [SubscribeResponse]s to be forwarded to the client
-	respChan chan messaging.SubscribeResponse
+	respChan chan datapb.SubscribeResponse
 	// Global sequence number that client started subscribing from
 	startGsn int32
 	// The global sequence number of the first recorded that was committed after the client began
@@ -84,7 +84,7 @@ type dataServer struct {
 	// Protects all internal structures
 	mu sync.RWMutex
 	// Live connections to other servers inside the shard -- used for replication
-	shardServers []chan messaging.ReplicateRequest
+	shardServers []chan datapb.ReplicateRequest
 	// Client for API calls with kubernetes
 	kubeClient *kubernetes.Clientset
 	// Clients that have subscribed to this data server
@@ -354,7 +354,7 @@ func (server *dataServer) updateBehindClientSub(clientSub *clientSubscription) {
 			continue
 		}
 		server.viewMu.RLock()
-		resp := messaging.SubscribeResponse{
+		resp := datapb.SubscribeResponse{
 			Gsn:    currGsn,
 			Record: record,
 			ViewID: server.viewID,
@@ -392,7 +392,7 @@ func (server *dataServer) respondToClientSub(clientSub *clientSubscription, gsn 
 	}
 	record := server.committedRecords[gsn]
 	server.viewMu.RLock()
-	resp := messaging.SubscribeResponse{
+	resp := datapb.SubscribeResponse{
 		Gsn:    gsn,
 		Record: record,
 		ViewID: server.viewID,
@@ -446,7 +446,7 @@ func containsID(finalizeShardIDS []int32, shardID int32) bool {
 
 func (server *dataServer) setupReplicateConnections() {
 	shardName := viper.GetString("shardGroup")
-	var shardPods []chan messaging.ReplicateRequest
+	var shardPods []chan datapb.ReplicateRequest
 	if !viper.GetBool("localRun") {
 		logger.Printf("Server %d searching for other %d servers in %s\n", server.replicaID, server.replicaCount, shardName)
 		server.kubeClient = kube.InitKubernetesClient()
@@ -455,13 +455,13 @@ func (server *dataServer) setupReplicateConnections() {
 			if pod.Status.PodIP == viper.Get("pod_ip") {
 				continue
 			}
-			shardPods = append(shardPods, make(chan messaging.ReplicateRequest))
+			shardPods = append(shardPods, make(chan datapb.ReplicateRequest))
 			go server.createIntershardPodConnection(pod.Status.PodIP, shardPods[len(shardPods)-1])
 		}
 	} else {
 		// TODO: Make more extensible for testing -- right now we assume only two replicas in our local cluster
 		logger.Printf("Server %d searching for other %d servers on your local machine\n", server.replicaID, server.replicaCount)
-		shardPods = append(shardPods, make(chan messaging.ReplicateRequest))
+		shardPods = append(shardPods, make(chan datapb.ReplicateRequest))
 		if viper.GetString("port") == "8080" {
 			go server.createIntershardPodConnection("0.0.0.0:8081", shardPods[len(shardPods)-1])
 		} else {
@@ -471,7 +471,7 @@ func (server *dataServer) setupReplicateConnections() {
 }
 
 // Forms a channel which writes to a specific pod on a specific pod ip
-func (server *dataServer) createIntershardPodConnection(podIP string, ch chan messaging.ReplicateRequest) {
+func (server *dataServer) createIntershardPodConnection(podIP string, ch chan datapb.ReplicateRequest) {
 	var conn *grpc.ClientConn
 	if viper.GetBool("localRun") {
 		conn = golib.ConnectTo(podIP)
@@ -479,7 +479,7 @@ func (server *dataServer) createIntershardPodConnection(podIP string, ch chan me
 		conn = golib.ConnectTo(podIP + ":" + viper.GetString("port"))
 	}
 
-	client := messaging.NewDataClient(conn)
+	client := datapb.NewDataClient(conn)
 	stream, err := client.Replicate(context.Background())
 	if err != nil {
 		logger.Panicf("Couldn't create a conection with server replica")
