@@ -15,6 +15,10 @@ func Printf(format string, v ...interface{}) {
 	logger.Printf(format, v...)
 }
 
+func Println(format string) {
+	logger.Println(format)
+}
+
 func Debugf(format string, v ...interface{}) {
 	logger.Printf(format, v...)
 }
