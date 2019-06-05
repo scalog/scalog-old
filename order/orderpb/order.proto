@@ -2,52 +2,33 @@ syntax = "proto3";
 
 package orderpb;
 
-/*
-gRPC for Order layer of Scalog
-*/
 service Order {
-    rpc Report(stream ReportRequest) returns (stream ReportResponse) {}
-    rpc Forward(stream ReportRequest) returns (ReportResponse) {}
-    rpc Register(RegisterRequest) returns (RegisterResponse) {}
-    rpc Finalize(FinalizeRequest) returns (FinalizeResponse) {}
+	rpc Report(stream LocalCuts) returns (stream CommittedEntry) {}
+	rpc Forward(stream LocalCuts) returns (Empty) {}
+	rpc Finalize(FinalizeEntry) returns (Empty) {}
 }
 
-message Cut {
-    // Array of len numReplicas
-    repeated int32 cut = 1;
+message LocalCut {
+	int32 shardID = 1;
+	int32 localReplicaID = 2; // 0...(numReplicas-1)
+	repeated int32 cut = 3; // Array of len numReplicas
 }
 
-message ShardView {
-    // Key: ReplicaID, Value: replica cuts
-    map<int32, Cut> replicas = 1;
+message LocalCuts {
+	repeated LocalCut cut = 1;
 }
 
-message ReportRequest {
-    // Key: ShardID, Value: Shard cuts
-    map<int32, ShardView> shards = 1;
+message CommittedEntry {
+	int64 seq = 1;
+	// from globalReplicaID to each cut entry
+	// globalReplicaID = shardID * numReplicas + localReplicaID
+	map<int32, int32> committedCut = 2;
+	FinalizeEntry finalizeShards = 3;
 }
 
-message ReportResponse {
-    // Key: ShardID, Value: Commited cuts
-    map<int32, Cut> commitedCuts = 1;
-    // GSN to start computing at
-    int32 startGSN = 2;
-    int32 viewID = 3;
-    repeated int32 finalizeShardIDs = 4;
+message FinalizeEntry {
+	int32 limit = 1;
+	repeated int32 shard = 2;
 }
 
-message RegisterRequest {
-    int32 shardID = 1;
-    int32 replicaID = 2;
-}
-
-message RegisterResponse {
-    int32 viewID = 1;
-}
-
-message FinalizeRequest {
-    repeated int32 shardIDs = 1;
-    int32 limit = 2;
-}
-
-message FinalizeResponse {}
+message Empty {}
