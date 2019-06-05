@@ -21,7 +21,7 @@ import (
 
 	"github.com/scalog/scalog/data"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
+	_ "github.com/spf13/viper"
 )
 
 func parsePodName(podName string) (string, int, int) {
@@ -62,11 +62,13 @@ func init() {
 
 	// UGLY - We parse metainformation from the name of this pod, since Kubernetes cannot
 	// do it itself
-	shardGroup, replicaID, shardID := parsePodName(viper.GetString("name"))
-	viper.Set("shardGroup", shardGroup)
-	viper.Set("shardID", shardID)
-	viper.Set("orderPort", 21024)
-	viper.Set("id", replicaID)
+	/*
+		shardGroup, replicaID, shardID := parsePodName(viper.GetString("name"))
+		viper.Set("shardGroup", shardGroup)
+		viper.Set("shardID", shardID)
+		viper.Set("orderPort", 21024)
+		viper.Set("id", replicaID)
+	*/
 }
 
 // dataCmd represents the data command

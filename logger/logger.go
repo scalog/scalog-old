@@ -15,8 +15,8 @@ func Printf(format string, v ...interface{}) {
 	logger.Printf(format, v...)
 }
 
-func Println(format string) {
-	logger.Println(format)
+func Println(v interface{}) {
+	logger.Printf("%v\n", v)
 }
 
 func Debugf(format string, v ...interface{}) {
@@ -41,4 +41,8 @@ func Fatalf(format string, v ...interface{}) {
 
 func Panicf(format string, v ...interface{}) {
 	logger.Panicf(format, v...)
+}
+
+func Panic(v interface{}) {
+	logger.Panicf("%v", v)
 }

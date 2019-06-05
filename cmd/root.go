@@ -58,7 +58,7 @@ func init() {
 	// Here you will define your flags and configuration settings.
 	// Cobra supports persistent flags, which, if defined here,
 	// will be global for your application.
-	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.scalog.yaml)")
+	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", ".scalog.yaml", "config file (default is .scalog.yaml)")
 	rootCmd.PersistentFlags().IntVar(&port, "port", 21024, "Port to listen (default is 21024)")
 
 	// Local run for testing
