@@ -31,22 +31,20 @@ func Start() {
 		}),
 	)
 
-	// TODO: For more fine tuned health checking, we should pass the health server into the data serve r
-	// so we can update its state with more intimiate details
+	// TODO: For more fine tuned health checking, we should pass the
+	// health server into the data serve r so we can update its state with
+	// more intimiate details
 	healthServer := health.NewServer()
 	healthServer.Resume()
 	healthgrpc.RegisterHealthServer(grpcServer, healthServer)
 
 	id, peers := getRaftIndexPeerUrls()
 	// TODO: remove hard coded server shard count
-	server := newOrderServer(golib.NewSet(), viper.GetInt("replica_count"))
-	rc := newRaftNode(id, peers, false, server.getSnapshot)
-	server.rc = rc
-	go server.connectToLeader()
+	server := NewOrderServer(golib.NewSet(), viper.GetInt("replica_count"))
+	server.rc, server.commitC, server.errorC, server.snapshotterC = newRaftNode(id, peers, false, server.getSnapshot, server.proposeC, server.confChangeC)
 
 	orderpb.RegisterOrderServer(grpcServer, server)
-	go server.proposeGlobalCutToRaft()
-	go server.listenForRaftCommits()
+	go server.Start()
 
 	log.Printf("Order layer server available on port %d\n", viper.Get("port"))
 	//Blocking, must be last step
@@ -60,17 +58,21 @@ type peerIDAndURL struct {
 }
 
 /**
-Returns own ID (as index into array of IP addresses) and an array of IP addresses of Raft peers, sorted by increasing UID.
-The IP addresses should include the port number.
+Returns own ID (as index into array of IP addresses) and an array of IP
+addresses of Raft peers, sorted by increasing UID.  The IP addresses should
+include the port number.
 */
 func getRaftIndexPeerUrls() (int, []string) {
-	if viper.GetBool("localRun") {
-		// FOR TESTING. Single raft node
+	if viper.GetBool("localRun") { // FOR TESTING. Single raft node
 		return 1, []string{"http://0.0.0.0:9876"}
+	}
+	if viper.GetBool("localCluster") { // FOR TESTING. Local raft cluster with 3 nodes
+		id := viper.GetInt("uid")
+		return id, []string{"http://0.0.0.0:9876", "http://0.0.0.0:9877", "http://0.0.0.0:9878"}
 	}
 
 	pods := kube.GetShardPods(kube.InitKubernetesClient(), "app=scalog-order",
-		viper.GetInt("raft_cluster_size"), viper.GetString("namespace"))
+		viper.GetInt("replica_count"), viper.GetString("namespace"))
 
 	size := len(pods.Items)
 	peers := make([]peerIDAndURL, size)
@@ -97,7 +99,6 @@ func getRaftIndexPeerUrls() (int, []string) {
 		}
 		urls[i] = idURL.url
 	}
-	// ID's in raft should be one indexed
-	index++
+	index++ // ID's in raft should be one indexed
 	return index, urls
 }

@@ -1,0 +1,2 @@
+replica_count: 1
+batching_interval: 1000

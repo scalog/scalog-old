@@ -56,8 +56,7 @@ func init() {
 	bindEnvVar("name")
 	bindEnvVar("namespace")
 	bindEnvVar("pod_ip")
-	bindEnvVar("raft_cluster_size")
 	bindEnvVar("replica_count")
 	bindEnvVar("uid")
-	bindEnvVar("batch_interval")
+	bindEnvVar("batching_interval")
 }

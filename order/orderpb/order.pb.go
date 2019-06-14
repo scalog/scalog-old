@@ -9,14 +9,12 @@ It is generated from these files:
 	orderpb/order.proto
 
 It has these top-level messages:
-	Cut
-	ShardView
-	ReportRequest
-	ReportResponse
-	RegisterRequest
-	RegisterResponse
-	FinalizeRequest
-	FinalizeResponse
+	LocalCut
+	LocalCuts
+	CommittedCut
+	CommittedEntry
+	FinalizeEntry
+	Empty
 */
 package orderpb
 
@@ -40,180 +38,159 @@ var _ = math.Inf
 // proto package needs to be updated.
 const _ = proto.ProtoPackageIsVersion2 // please upgrade the proto package
 
-type Cut struct {
-	// Array of len numReplicas
-	Cut []int32 `protobuf:"varint,1,rep,packed,name=cut" json:"cut,omitempty"`
+type LocalCut struct {
+	ShardID        int32   `protobuf:"varint,1,opt,name=shardID" json:"shardID,omitempty"`
+	LocalReplicaID int32   `protobuf:"varint,2,opt,name=localReplicaID" json:"localReplicaID,omitempty"`
+	Cut            []int32 `protobuf:"varint,3,rep,packed,name=cut" json:"cut,omitempty"`
 }
 
-func (m *Cut) Reset()                    { *m = Cut{} }
-func (m *Cut) String() string            { return proto.CompactTextString(m) }
-func (*Cut) ProtoMessage()               {}
-func (*Cut) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{0} }
+func (m *LocalCut) Reset()                    { *m = LocalCut{} }
+func (m *LocalCut) String() string            { return proto.CompactTextString(m) }
+func (*LocalCut) ProtoMessage()               {}
+func (*LocalCut) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{0} }
 
-func (m *Cut) GetCut() []int32 {
-	if m != nil {
-		return m.Cut
-	}
-	return nil
-}
-
-type ShardView struct {
-	// Key: ReplicaID, Value: replica cuts
-	Replicas map[int32]*Cut `protobuf:"bytes,1,rep,name=replicas" json:"replicas,omitempty" protobuf_key:"varint,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-}
-
-func (m *ShardView) Reset()                    { *m = ShardView{} }
-func (m *ShardView) String() string            { return proto.CompactTextString(m) }
-func (*ShardView) ProtoMessage()               {}
-func (*ShardView) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{1} }
-
-func (m *ShardView) GetReplicas() map[int32]*Cut {
-	if m != nil {
-		return m.Replicas
-	}
-	return nil
-}
-
-type ReportRequest struct {
-	// Key: ShardID, Value: Shard cuts
-	Shards map[int32]*ShardView `protobuf:"bytes,1,rep,name=shards" json:"shards,omitempty" protobuf_key:"varint,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-}
-
-func (m *ReportRequest) Reset()                    { *m = ReportRequest{} }
-func (m *ReportRequest) String() string            { return proto.CompactTextString(m) }
-func (*ReportRequest) ProtoMessage()               {}
-func (*ReportRequest) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{2} }
-
-func (m *ReportRequest) GetShards() map[int32]*ShardView {
-	if m != nil {
-		return m.Shards
-	}
-	return nil
-}
-
-type ReportResponse struct {
-	// Key: ShardID, Value: Commited cuts
-	CommitedCuts map[int32]*Cut `protobuf:"bytes,1,rep,name=commitedCuts" json:"commitedCuts,omitempty" protobuf_key:"varint,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	// GSN to start computing at
-	StartGSN         int32   `protobuf:"varint,2,opt,name=startGSN" json:"startGSN,omitempty"`
-	ViewID           int32   `protobuf:"varint,3,opt,name=viewID" json:"viewID,omitempty"`
-	FinalizeShardIDs []int32 `protobuf:"varint,4,rep,packed,name=finalizeShardIDs" json:"finalizeShardIDs,omitempty"`
-}
-
-func (m *ReportResponse) Reset()                    { *m = ReportResponse{} }
-func (m *ReportResponse) String() string            { return proto.CompactTextString(m) }
-func (*ReportResponse) ProtoMessage()               {}
-func (*ReportResponse) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{3} }
-
-func (m *ReportResponse) GetCommitedCuts() map[int32]*Cut {
-	if m != nil {
-		return m.CommitedCuts
-	}
-	return nil
-}
-
-func (m *ReportResponse) GetStartGSN() int32 {
-	if m != nil {
-		return m.StartGSN
-	}
-	return 0
-}
-
-func (m *ReportResponse) GetViewID() int32 {
-	if m != nil {
-		return m.ViewID
-	}
-	return 0
-}
-
-func (m *ReportResponse) GetFinalizeShardIDs() []int32 {
-	if m != nil {
-		return m.FinalizeShardIDs
-	}
-	return nil
-}
-
-type RegisterRequest struct {
-	ShardID   int32 `protobuf:"varint,1,opt,name=shardID" json:"shardID,omitempty"`
-	ReplicaID int32 `protobuf:"varint,2,opt,name=replicaID" json:"replicaID,omitempty"`
-}
-
-func (m *RegisterRequest) Reset()                    { *m = RegisterRequest{} }
-func (m *RegisterRequest) String() string            { return proto.CompactTextString(m) }
-func (*RegisterRequest) ProtoMessage()               {}
-func (*RegisterRequest) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{4} }
-
-func (m *RegisterRequest) GetShardID() int32 {
+func (m *LocalCut) GetShardID() int32 {
 	if m != nil {
 		return m.ShardID
 	}
 	return 0
 }
 
-func (m *RegisterRequest) GetReplicaID() int32 {
+func (m *LocalCut) GetLocalReplicaID() int32 {
 	if m != nil {
-		return m.ReplicaID
+		return m.LocalReplicaID
 	}
 	return 0
 }
 
-type RegisterResponse struct {
-	ViewID int32 `protobuf:"varint,1,opt,name=viewID" json:"viewID,omitempty"`
+func (m *LocalCut) GetCut() []int32 {
+	if m != nil {
+		return m.Cut
+	}
+	return nil
 }
 
-func (m *RegisterResponse) Reset()                    { *m = RegisterResponse{} }
-func (m *RegisterResponse) String() string            { return proto.CompactTextString(m) }
-func (*RegisterResponse) ProtoMessage()               {}
-func (*RegisterResponse) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{5} }
+type LocalCuts struct {
+	Cuts []*LocalCut `protobuf:"bytes,1,rep,name=cuts" json:"cuts,omitempty"`
+}
 
-func (m *RegisterResponse) GetViewID() int32 {
+func (m *LocalCuts) Reset()                    { *m = LocalCuts{} }
+func (m *LocalCuts) String() string            { return proto.CompactTextString(m) }
+func (*LocalCuts) ProtoMessage()               {}
+func (*LocalCuts) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{1} }
+
+func (m *LocalCuts) GetCuts() []*LocalCut {
+	if m != nil {
+		return m.Cuts
+	}
+	return nil
+}
+
+type CommittedCut struct {
+	StartGSN int32 `protobuf:"varint,1,opt,name=startGSN" json:"startGSN,omitempty"`
+	// from globalReplicaID to each cut entry
+	// globalReplicaID = shardID * numReplicas + localReplicaID
+	Cut map[int32]int32 `protobuf:"bytes,2,rep,name=cut" json:"cut,omitempty" protobuf_key:"varint,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
+}
+
+func (m *CommittedCut) Reset()                    { *m = CommittedCut{} }
+func (m *CommittedCut) String() string            { return proto.CompactTextString(m) }
+func (*CommittedCut) ProtoMessage()               {}
+func (*CommittedCut) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{2} }
+
+func (m *CommittedCut) GetStartGSN() int32 {
+	if m != nil {
+		return m.StartGSN
+	}
+	return 0
+}
+
+func (m *CommittedCut) GetCut() map[int32]int32 {
+	if m != nil {
+		return m.Cut
+	}
+	return nil
+}
+
+type CommittedEntry struct {
+	Seq            int64          `protobuf:"varint,1,opt,name=seq" json:"seq,omitempty"`
+	ViewID         int32          `protobuf:"varint,2,opt,name=viewID" json:"viewID,omitempty"`
+	CommittedCut   *CommittedCut  `protobuf:"bytes,3,opt,name=committedCut" json:"committedCut,omitempty"`
+	FinalizeShards *FinalizeEntry `protobuf:"bytes,4,opt,name=finalizeShards" json:"finalizeShards,omitempty"`
+}
+
+func (m *CommittedEntry) Reset()                    { *m = CommittedEntry{} }
+func (m *CommittedEntry) String() string            { return proto.CompactTextString(m) }
+func (*CommittedEntry) ProtoMessage()               {}
+func (*CommittedEntry) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{3} }
+
+func (m *CommittedEntry) GetSeq() int64 {
+	if m != nil {
+		return m.Seq
+	}
+	return 0
+}
+
+func (m *CommittedEntry) GetViewID() int32 {
 	if m != nil {
 		return m.ViewID
 	}
 	return 0
 }
 
-type FinalizeRequest struct {
-	ShardIDs []int32 `protobuf:"varint,1,rep,packed,name=shardIDs" json:"shardIDs,omitempty"`
-	Limit    int32   `protobuf:"varint,2,opt,name=limit" json:"limit,omitempty"`
-}
-
-func (m *FinalizeRequest) Reset()                    { *m = FinalizeRequest{} }
-func (m *FinalizeRequest) String() string            { return proto.CompactTextString(m) }
-func (*FinalizeRequest) ProtoMessage()               {}
-func (*FinalizeRequest) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{6} }
-
-func (m *FinalizeRequest) GetShardIDs() []int32 {
+func (m *CommittedEntry) GetCommittedCut() *CommittedCut {
 	if m != nil {
-		return m.ShardIDs
+		return m.CommittedCut
 	}
 	return nil
 }
 
-func (m *FinalizeRequest) GetLimit() int32 {
+func (m *CommittedEntry) GetFinalizeShards() *FinalizeEntry {
+	if m != nil {
+		return m.FinalizeShards
+	}
+	return nil
+}
+
+type FinalizeEntry struct {
+	Limit    int32   `protobuf:"varint,1,opt,name=limit" json:"limit,omitempty"`
+	ShardIDs []int32 `protobuf:"varint,2,rep,packed,name=shardIDs" json:"shardIDs,omitempty"`
+}
+
+func (m *FinalizeEntry) Reset()                    { *m = FinalizeEntry{} }
+func (m *FinalizeEntry) String() string            { return proto.CompactTextString(m) }
+func (*FinalizeEntry) ProtoMessage()               {}
+func (*FinalizeEntry) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{4} }
+
+func (m *FinalizeEntry) GetLimit() int32 {
 	if m != nil {
 		return m.Limit
 	}
 	return 0
 }
 
-type FinalizeResponse struct {
+func (m *FinalizeEntry) GetShardIDs() []int32 {
+	if m != nil {
+		return m.ShardIDs
+	}
+	return nil
 }
 
-func (m *FinalizeResponse) Reset()                    { *m = FinalizeResponse{} }
-func (m *FinalizeResponse) String() string            { return proto.CompactTextString(m) }
-func (*FinalizeResponse) ProtoMessage()               {}
-func (*FinalizeResponse) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{7} }
+type Empty struct {
+}
+
+func (m *Empty) Reset()                    { *m = Empty{} }
+func (m *Empty) String() string            { return proto.CompactTextString(m) }
+func (*Empty) ProtoMessage()               {}
+func (*Empty) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{5} }
 
 func init() {
-	proto.RegisterType((*Cut)(nil), "orderpb.Cut")
-	proto.RegisterType((*ShardView)(nil), "orderpb.ShardView")
-	proto.RegisterType((*ReportRequest)(nil), "orderpb.ReportRequest")
-	proto.RegisterType((*ReportResponse)(nil), "orderpb.ReportResponse")
-	proto.RegisterType((*RegisterRequest)(nil), "orderpb.RegisterRequest")
-	proto.RegisterType((*RegisterResponse)(nil), "orderpb.RegisterResponse")
-	proto.RegisterType((*FinalizeRequest)(nil), "orderpb.FinalizeRequest")
-	proto.RegisterType((*FinalizeResponse)(nil), "orderpb.FinalizeResponse")
+	proto.RegisterType((*LocalCut)(nil), "orderpb.LocalCut")
+	proto.RegisterType((*LocalCuts)(nil), "orderpb.LocalCuts")
+	proto.RegisterType((*CommittedCut)(nil), "orderpb.CommittedCut")
+	proto.RegisterType((*CommittedEntry)(nil), "orderpb.CommittedEntry")
+	proto.RegisterType((*FinalizeEntry)(nil), "orderpb.FinalizeEntry")
+	proto.RegisterType((*Empty)(nil), "orderpb.Empty")
 }
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -229,8 +206,7 @@ const _ = grpc.SupportPackageIsVersion4
 type OrderClient interface {
 	Report(ctx context.Context, opts ...grpc.CallOption) (Order_ReportClient, error)
 	Forward(ctx context.Context, opts ...grpc.CallOption) (Order_ForwardClient, error)
-	Register(ctx context.Context, in *RegisterRequest, opts ...grpc.CallOption) (*RegisterResponse, error)
-	Finalize(ctx context.Context, in *FinalizeRequest, opts ...grpc.CallOption) (*FinalizeResponse, error)
+	Finalize(ctx context.Context, in *FinalizeEntry, opts ...grpc.CallOption) (*Empty, error)
 }
 
 type orderClient struct {
@@ -251,8 +227,8 @@ func (c *orderClient) Report(ctx context.Context, opts ...grpc.CallOption) (Orde
 }
 
 type Order_ReportClient interface {
-	Send(*ReportRequest) error
-	Recv() (*ReportResponse, error)
+	Send(*LocalCuts) error
+	Recv() (*CommittedEntry, error)
 	grpc.ClientStream
 }
 
@@ -260,12 +236,12 @@ type orderReportClient struct {
 	grpc.ClientStream
 }
 
-func (x *orderReportClient) Send(m *ReportRequest) error {
+func (x *orderReportClient) Send(m *LocalCuts) error {
 	return x.ClientStream.SendMsg(m)
 }
 
-func (x *orderReportClient) Recv() (*ReportResponse, error) {
-	m := new(ReportResponse)
+func (x *orderReportClient) Recv() (*CommittedEntry, error) {
+	m := new(CommittedEntry)
 	if err := x.ClientStream.RecvMsg(m); err != nil {
 		return nil, err
 	}
@@ -282,8 +258,8 @@ func (c *orderClient) Forward(ctx context.Context, opts ...grpc.CallOption) (Ord
 }
 
 type Order_ForwardClient interface {
-	Send(*ReportRequest) error
-	CloseAndRecv() (*ReportResponse, error)
+	Send(*LocalCuts) error
+	CloseAndRecv() (*Empty, error)
 	grpc.ClientStream
 }
 
@@ -291,32 +267,23 @@ type orderForwardClient struct {
 	grpc.ClientStream
 }
 
-func (x *orderForwardClient) Send(m *ReportRequest) error {
+func (x *orderForwardClient) Send(m *LocalCuts) error {
 	return x.ClientStream.SendMsg(m)
 }
 
-func (x *orderForwardClient) CloseAndRecv() (*ReportResponse, error) {
+func (x *orderForwardClient) CloseAndRecv() (*Empty, error) {
 	if err := x.ClientStream.CloseSend(); err != nil {
 		return nil, err
 	}
-	m := new(ReportResponse)
+	m := new(Empty)
 	if err := x.ClientStream.RecvMsg(m); err != nil {
 		return nil, err
 	}
 	return m, nil
 }
 
-func (c *orderClient) Register(ctx context.Context, in *RegisterRequest, opts ...grpc.CallOption) (*RegisterResponse, error) {
-	out := new(RegisterResponse)
-	err := grpc.Invoke(ctx, "/orderpb.Order/Register", in, out, c.cc, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *orderClient) Finalize(ctx context.Context, in *FinalizeRequest, opts ...grpc.CallOption) (*FinalizeResponse, error) {
-	out := new(FinalizeResponse)
+func (c *orderClient) Finalize(ctx context.Context, in *FinalizeEntry, opts ...grpc.CallOption) (*Empty, error) {
+	out := new(Empty)
 	err := grpc.Invoke(ctx, "/orderpb.Order/Finalize", in, out, c.cc, opts...)
 	if err != nil {
 		return nil, err
@@ -329,8 +296,7 @@ func (c *orderClient) Finalize(ctx context.Context, in *FinalizeRequest, opts ..
 type OrderServer interface {
 	Report(Order_ReportServer) error
 	Forward(Order_ForwardServer) error
-	Register(context.Context, *RegisterRequest) (*RegisterResponse, error)
-	Finalize(context.Context, *FinalizeRequest) (*FinalizeResponse, error)
+	Finalize(context.Context, *FinalizeEntry) (*Empty, error)
 }
 
 func RegisterOrderServer(s *grpc.Server, srv OrderServer) {
@@ -342,8 +308,8 @@ func _Order_Report_Handler(srv interface{}, stream grpc.ServerStream) error {
 }
 
 type Order_ReportServer interface {
-	Send(*ReportResponse) error
-	Recv() (*ReportRequest, error)
+	Send(*CommittedEntry) error
+	Recv() (*LocalCuts, error)
 	grpc.ServerStream
 }
 
@@ -351,12 +317,12 @@ type orderReportServer struct {
 	grpc.ServerStream
 }
 
-func (x *orderReportServer) Send(m *ReportResponse) error {
+func (x *orderReportServer) Send(m *CommittedEntry) error {
 	return x.ServerStream.SendMsg(m)
 }
 
-func (x *orderReportServer) Recv() (*ReportRequest, error) {
-	m := new(ReportRequest)
+func (x *orderReportServer) Recv() (*LocalCuts, error) {
+	m := new(LocalCuts)
 	if err := x.ServerStream.RecvMsg(m); err != nil {
 		return nil, err
 	}
@@ -368,8 +334,8 @@ func _Order_Forward_Handler(srv interface{}, stream grpc.ServerStream) error {
 }
 
 type Order_ForwardServer interface {
-	SendAndClose(*ReportResponse) error
-	Recv() (*ReportRequest, error)
+	SendAndClose(*Empty) error
+	Recv() (*LocalCuts, error)
 	grpc.ServerStream
 }
 
@@ -377,38 +343,20 @@ type orderForwardServer struct {
 	grpc.ServerStream
 }
 
-func (x *orderForwardServer) SendAndClose(m *ReportResponse) error {
+func (x *orderForwardServer) SendAndClose(m *Empty) error {
 	return x.ServerStream.SendMsg(m)
 }
 
-func (x *orderForwardServer) Recv() (*ReportRequest, error) {
-	m := new(ReportRequest)
+func (x *orderForwardServer) Recv() (*LocalCuts, error) {
+	m := new(LocalCuts)
 	if err := x.ServerStream.RecvMsg(m); err != nil {
 		return nil, err
 	}
 	return m, nil
 }
 
-func _Order_Register_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(RegisterRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(OrderServer).Register(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/orderpb.Order/Register",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(OrderServer).Register(ctx, req.(*RegisterRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 func _Order_Finalize_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(FinalizeRequest)
+	in := new(FinalizeEntry)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -420,7 +368,7 @@ func _Order_Finalize_Handler(srv interface{}, ctx context.Context, dec func(inte
 		FullMethod: "/orderpb.Order/Finalize",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(OrderServer).Finalize(ctx, req.(*FinalizeRequest))
+		return srv.(OrderServer).Finalize(ctx, req.(*FinalizeEntry))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -429,10 +377,6 @@ var _Order_serviceDesc = grpc.ServiceDesc{
 	ServiceName: "orderpb.Order",
 	HandlerType: (*OrderServer)(nil),
 	Methods: []grpc.MethodDesc{
-		{
-			MethodName: "Register",
-			Handler:    _Order_Register_Handler,
-		},
 		{
 			MethodName: "Finalize",
 			Handler:    _Order_Finalize_Handler,
@@ -457,35 +401,31 @@ var _Order_serviceDesc = grpc.ServiceDesc{
 func init() { proto.RegisterFile("orderpb/order.proto", fileDescriptor0) }
 
 var fileDescriptor0 = []byte{
-	// 473 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x09, 0x6e, 0x88, 0x02, 0xff, 0xa4, 0x54, 0x4b, 0x6f, 0xd3, 0x40,
-	0x10, 0xee, 0x26, 0x38, 0x49, 0x27, 0x85, 0x86, 0x01, 0xb5, 0xc6, 0xe2, 0x10, 0xed, 0x29, 0xf4,
-	0x60, 0x50, 0xb8, 0xa0, 0x0a, 0x81, 0x90, 0x43, 0x91, 0x0f, 0x01, 0xc9, 0x95, 0xb8, 0xbb, 0xc9,
-	0x02, 0xab, 0x26, 0x71, 0xd8, 0x5d, 0x37, 0x0a, 0x3f, 0xa2, 0x27, 0x4e, 0xfc, 0x5a, 0xe4, 0x7d,
-	0x38, 0x76, 0x1d, 0x2e, 0xf4, 0x94, 0xcc, 0xeb, 0x7b, 0xcc, 0xac, 0x0c, 0x4f, 0x32, 0x31, 0x67,
-	0x62, 0x7d, 0xf5, 0x52, 0xff, 0x86, 0x6b, 0x91, 0xa9, 0x0c, 0xbb, 0x36, 0x49, 0x4f, 0xa1, 0x1d,
-	0xe5, 0x0a, 0x07, 0xd0, 0x9e, 0xe5, 0xca, 0x27, 0xc3, 0xf6, 0xc8, 0x4b, 0x8a, 0xbf, 0xf4, 0x37,
-	0x81, 0xc3, 0xcb, 0x1f, 0xa9, 0x98, 0x7f, 0xe5, 0x6c, 0x83, 0x6f, 0xa1, 0x27, 0xd8, 0x7a, 0xc1,
-	0x67, 0xa9, 0xd4, 0x4d, 0xfd, 0xf1, 0x30, 0xb4, 0x10, 0x61, 0xd9, 0x15, 0x26, 0xb6, 0xe5, 0xe3,
-	0x4a, 0x89, 0x6d, 0x52, 0x4e, 0x04, 0x31, 0x3c, 0xac, 0x95, 0x0a, 0xba, 0x6b, 0xb6, 0xf5, 0xc9,
-	0x90, 0x14, 0x74, 0xd7, 0x6c, 0x8b, 0x14, 0xbc, 0x9b, 0x74, 0x91, 0x33, 0xbf, 0x35, 0x24, 0xa3,
-	0xfe, 0xf8, 0xa8, 0x44, 0x8f, 0x72, 0x95, 0x98, 0xd2, 0x79, 0xeb, 0x0d, 0xa1, 0x7f, 0x88, 0xc6,
-	0xca, 0x84, 0x4a, 0xd8, 0xcf, 0x9c, 0x49, 0x85, 0xe7, 0xd0, 0x91, 0x85, 0x02, 0x27, 0x8c, 0x96,
-	0xa3, 0xb5, 0x3e, 0x23, 0xd3, 0x4a, 0xb3, 0x13, 0xc1, 0x14, 0xfa, 0x95, 0xf4, 0x1e, 0x59, 0xa3,
-	0xba, 0x2c, 0x6c, 0x9a, 0xae, 0x8a, 0xbb, 0x6d, 0xc1, 0x23, 0x47, 0x2a, 0xd7, 0xd9, 0x4a, 0x32,
-	0x9c, 0xc2, 0xd1, 0x2c, 0x5b, 0x2e, 0xb9, 0x62, 0xf3, 0x28, 0x57, 0x4e, 0xe3, 0x8b, 0x86, 0x46,
-	0xd3, 0x1e, 0x46, 0x95, 0x5e, 0x23, 0xb5, 0x36, 0x8e, 0x01, 0xf4, 0xa4, 0x4a, 0x85, 0xfa, 0x74,
-	0xf9, 0x59, 0x4b, 0xf2, 0x92, 0x32, 0xc6, 0x13, 0xe8, 0xdc, 0x70, 0xb6, 0x89, 0x27, 0x7e, 0x5b,
-	0x57, 0x6c, 0x84, 0x67, 0x30, 0xf8, 0xc6, 0x57, 0xe9, 0x82, 0xff, 0x62, 0x5a, 0x75, 0x3c, 0x91,
-	0xfe, 0x03, 0x7d, 0xe8, 0x46, 0x3e, 0x98, 0xc2, 0xe3, 0x86, 0x84, 0x7b, 0x5c, 0x2b, 0x86, 0xe3,
-	0x84, 0x7d, 0xe7, 0x52, 0x31, 0xe1, 0xce, 0xe5, 0x43, 0x57, 0x1a, 0x36, 0x0b, 0xe8, 0x42, 0x7c,
-	0x0e, 0x87, 0xf6, 0xc5, 0xc4, 0x13, 0x6b, 0x6e, 0x97, 0xa0, 0x67, 0x30, 0xd8, 0x41, 0xd9, 0xe5,
-	0xee, 0x1c, 0x93, 0xaa, 0x63, 0x1a, 0xc1, 0xf1, 0x85, 0x75, 0xe6, 0x68, 0x8b, 0xc5, 0x39, 0xf3,
-	0xe6, 0x95, 0x97, 0x31, 0x3e, 0x05, 0x6f, 0xc1, 0x97, 0x5c, 0x59, 0x52, 0x13, 0x50, 0x84, 0xc1,
-	0x0e, 0xc4, 0x10, 0x8e, 0x6f, 0x5b, 0xe0, 0x7d, 0x29, 0xac, 0xe2, 0x7b, 0xe8, 0x98, 0xd3, 0xe1,
-	0xc9, 0xfe, 0xf7, 0x16, 0x9c, 0xfe, 0xe3, 0xc6, 0xf4, 0x60, 0x44, 0x5e, 0x11, 0x7c, 0x07, 0xdd,
-	0x8b, 0x4c, 0x6c, 0x52, 0x31, 0xff, 0x2f, 0x04, 0xfc, 0x00, 0x3d, 0xb7, 0x0f, 0xf4, 0x2b, 0x8d,
-	0xb5, 0x6d, 0x07, 0xcf, 0xf6, 0x54, 0x1c, 0x48, 0x01, 0xe1, 0x1c, 0x56, 0x20, 0xee, 0x6c, 0xae,
-	0x02, 0x71, 0x77, 0x1d, 0xf4, 0xe0, 0xaa, 0xa3, 0x3f, 0x27, 0xaf, 0xff, 0x06, 0x00, 0x00, 0xff,
-	0xff, 0xb1, 0xe0, 0x43, 0xa6, 0x65, 0x04, 0x00, 0x00,
+	// 407 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x09, 0x6e, 0x88, 0x02, 0xff, 0x74, 0x52, 0xdd, 0xca, 0xd3, 0x40,
+	0x10, 0x75, 0x9b, 0x2f, 0x4d, 0x9c, 0xef, 0x33, 0xe8, 0xa8, 0x35, 0xf4, 0x42, 0x42, 0x40, 0xc9,
+	0x55, 0xac, 0x51, 0xc4, 0x1f, 0x10, 0xa4, 0x3f, 0x52, 0x10, 0x85, 0xf4, 0x5e, 0x48, 0x93, 0x15,
+	0x83, 0x49, 0x13, 0x77, 0x37, 0x2d, 0xf5, 0x39, 0x7c, 0x0d, 0x2f, 0x7d, 0x3f, 0xd9, 0xcd, 0x26,
+	0xf4, 0xcf, 0xab, 0xec, 0x99, 0x3d, 0x67, 0xe6, 0x9c, 0xd9, 0xc0, 0xfd, 0x8a, 0x65, 0x94, 0xd5,
+	0xeb, 0x67, 0xea, 0x1b, 0xd6, 0xac, 0x12, 0x15, 0x5a, 0xba, 0xe8, 0x7f, 0x05, 0xfb, 0x53, 0x95,
+	0x26, 0xc5, 0xb4, 0x11, 0xe8, 0x82, 0xc5, 0xbf, 0x27, 0x2c, 0x5b, 0xce, 0x5c, 0xe2, 0x91, 0xc0,
+	0x8c, 0x3b, 0x88, 0x4f, 0xc1, 0x29, 0x24, 0x2b, 0xa6, 0x75, 0x91, 0xa7, 0xc9, 0x72, 0xe6, 0x0e,
+	0x14, 0xe1, 0xa4, 0x8a, 0x77, 0xc1, 0x48, 0x1b, 0xe1, 0x1a, 0x9e, 0x11, 0x98, 0xb1, 0x3c, 0xfa,
+	0x11, 0xdc, 0xee, 0xfa, 0x73, 0x7c, 0x02, 0x57, 0x69, 0x23, 0xb8, 0x4b, 0x3c, 0x23, 0xb8, 0x8e,
+	0xee, 0x85, 0xda, 0x44, 0xd8, 0x31, 0x62, 0x75, 0xed, 0xff, 0x26, 0x70, 0x33, 0xad, 0xca, 0x32,
+	0x17, 0x82, 0x66, 0xd2, 0xd8, 0x18, 0x6c, 0x2e, 0x12, 0x26, 0x3e, 0xae, 0x3e, 0x6b, 0x67, 0x3d,
+	0xc6, 0x49, 0x3b, 0x72, 0xa0, 0x5a, 0x3e, 0xee, 0x5b, 0x1e, 0xea, 0xc3, 0x69, 0x23, 0xe6, 0x1b,
+	0xc1, 0xf6, 0xca, 0xd2, 0xf8, 0x15, 0xd8, 0x5d, 0x41, 0x1a, 0xfe, 0x41, 0xf7, 0xba, 0xa9, 0x3c,
+	0xe2, 0x03, 0x30, 0xb7, 0x49, 0xd1, 0x50, 0x9d, 0xb0, 0x05, 0x6f, 0x07, 0xaf, 0x89, 0xff, 0x97,
+	0x80, 0xd3, 0xb7, 0xed, 0xe5, 0x9c, 0xfe, 0x54, 0x72, 0x23, 0x96, 0x47, 0x1c, 0xc1, 0x70, 0x9b,
+	0xd3, 0x5d, 0xbf, 0x21, 0x8d, 0xf0, 0x0d, 0xdc, 0xa4, 0x07, 0x96, 0x5c, 0xc3, 0x23, 0xc1, 0x75,
+	0xf4, 0xf0, 0xa2, 0xdf, 0xf8, 0x88, 0x8a, 0xef, 0xc1, 0xf9, 0x96, 0x6f, 0x92, 0x22, 0xff, 0x45,
+	0x57, 0xf2, 0x3d, 0xb8, 0x7b, 0xa5, 0xc4, 0xa3, 0x5e, 0xbc, 0xd0, 0xd7, 0x6d, 0xc8, 0x13, 0xb6,
+	0xff, 0x01, 0xee, 0x1c, 0x11, 0x64, 0xc4, 0x22, 0x2f, 0x73, 0xa1, 0x63, 0xb7, 0x40, 0x2d, 0xb9,
+	0x7d, 0x6e, 0xae, 0xb6, 0x29, 0x97, 0xac, 0xb1, 0x6f, 0x81, 0x39, 0x2f, 0x6b, 0xb1, 0x8f, 0xfe,
+	0x10, 0x30, 0xbf, 0xc8, 0xa9, 0xf8, 0x0e, 0x86, 0x31, 0xad, 0x2b, 0x26, 0x10, 0xcf, 0xde, 0x91,
+	0x8f, 0x1f, 0x9d, 0x07, 0x53, 0xb3, 0xfd, 0x5b, 0x01, 0x99, 0x10, 0x7c, 0x0e, 0xd6, 0xa2, 0x62,
+	0xbb, 0x84, 0x65, 0x17, 0xd5, 0x4e, 0x5f, 0x53, 0x53, 0xa5, 0x08, 0x5f, 0x82, 0xdd, 0xa5, 0xc0,
+	0xff, 0x24, 0x3f, 0xd7, 0xad, 0x87, 0xea, 0x77, 0x7f, 0xf1, 0x2f, 0x00, 0x00, 0xff, 0xff, 0xa9,
+	0xff, 0x8e, 0x26, 0x05, 0x03, 0x00, 0x00,
 }

@@ -13,7 +13,6 @@ import (
 	"github.com/scalog/scalog/internal/pkg/golib"
 	"github.com/scalog/scalog/internal/pkg/kube"
 	log "github.com/scalog/scalog/logger"
-	"github.com/scalog/scalog/order"
 	"github.com/scalog/scalog/order/orderpb"
 
 	"github.com/spf13/viper"
@@ -74,7 +73,7 @@ type dataServer struct {
 	// Mutex for viewID
 	viewMu sync.RWMutex
 	// lastComittedCut is the last batch recieved from the ordering layer
-	lastCommittedCut order.CommittedCut
+	lastCommittedCut orderpb.CommittedCut
 	// True if this replica has been finalized
 	isFinalized bool
 	// Stable storage for entries into this shard
@@ -119,7 +118,7 @@ func newDataServer(replicaID, shardID int32, replicaCount int) *dataServer {
 		replicaCount:           replicaCount,
 		shardID:                shardID,
 		viewMu:                 sync.RWMutex{},
-		lastCommittedCut:       make(order.CommittedCut),
+		lastCommittedCut:       orderpb.CommittedCut{0, nil},
 		isFinalized:            false,
 		disk:                   disk,
 		serverBuffers:          make([][]Record, replicaCount),
@@ -154,25 +153,15 @@ func (server *dataServer) sendLocalCutsToOrder(stream orderpb.Order_ReportClient
 			cut[idx] = int32(len(buf))
 		}
 		server.mu.RUnlock()
-		// If we have not received anything since the last order layer report, then don't
-		// send anything.
-		if golib.SliceEq(cut, sent) {
-			continue
-		}
 
-		reportReq := &orderpb.ReportRequest{
-			Shards: map[int32]*orderpb.ShardView{
-				server.shardID: {
-					Replicas: map[int32]*orderpb.Cut{
-						server.replicaID: {
-							Cut: cut,
-						},
-					},
-				},
-			},
+		lcs := &orderpb.LocalCuts{make([]*orderpb.LocalCut, 1)}
+		lcs.Cuts[0] = &orderpb.LocalCut{
+			ShardID:        server.shardID,
+			LocalReplicaID: server.replicaID,
+			Cut:            cut,
 		}
 		sent = cut
-		stream.Send(reportReq)
+		stream.Send(lcs)
 	}
 }
 
@@ -224,7 +213,7 @@ func (server *dataServer) receiveCommittedCuts(stream orderpb.Order_ReportClient
 			log.Panicf(err.Error())
 		}
 
-		if in.FinalizeShardIDs != nil && containsID(in.FinalizeShardIDs, server.shardID) {
+		if in.FinalizeShards != nil && containsID(in.FinalizeShards.ShardIDs, server.shardID) {
 			server.ticker.Stop()
 			server.notifyAllWaitingClients()
 			server.labelPodAsFinalized()
@@ -235,82 +224,82 @@ func (server *dataServer) receiveCommittedCuts(stream orderpb.Order_ReportClient
 		server.viewID = in.ViewID
 		server.viewMu.Unlock()
 
-		if in.CommitedCuts == nil {
+		if in.CommittedCut == nil {
 			continue
 		}
 
-		go server.updateBehindClientSubs(in.StartGSN)
+		go server.updateBehindClientSubs(in.CommittedCut.StartGSN)
 
 		// So we have to do this in sorted order -- sort the keys and then
 		// lexicographically start incrementing the gsn until we find this shard
-		shardIDs := make([]int, len(in.CommitedCuts))
+		shardIDs := make([]int, len(in.CommittedCut.Cut))
 		i := 0
-		for sid := range in.CommitedCuts {
+		for sid := range in.CommittedCut.Cut {
 			shardIDs[i] = int(sid)
 			i++
 		}
 		sort.Ints(shardIDs)
 
+		// TODO the logic is wired
+
 		// cutGSN starts assigning GSN based on the index indicated by the fault tolerant ordering layer
-		cutGSN := in.StartGSN
-		for _, shardID := range shardIDs {
-			currentShardCut := in.CommitedCuts[int32(shardID)].Cut
-			if int(server.shardID) == shardID {
-				// Last committed cut for this server
-				var lastSequencedCut []int32
-				// It's possible that this is the first time we are seeing this registered shard
-				// come back in a cut.
-				lastSequencedCutWrapper, isBound := server.lastCommittedCut[int32(shardID)]
-				if isBound {
-					lastSequencedCut = lastSequencedCutWrapper.Cut
-				} else {
-					lastSequencedCut = nil
-				}
-				for idx, r := range currentShardCut {
-					var offset int32
-					// If this is the first time we have seen this shard, initialize the previously
-					// seen committed cut to be the zero vector
-					if lastSequencedCut != nil {
-						offset = lastSequencedCut[idx]
-					} else {
-						offset = 0
-					}
-					numLogs := int(r - offset)
-					for i := 0; i < numLogs; i++ {
-						server.mu.Lock()
-						if idx == int(server.replicaID) {
-							err := server.disk.Commit(server.serverBuffers[idx][int(offset)+i].lsn, int64(cutGSN))
-							if err != nil {
-								// TODO handle error
-								log.Printf(err.Error())
-							}
-						}
-						server.serverBuffers[idx][int(offset)+i].gsn = cutGSN
-						server.committedRecords[cutGSN] = server.serverBuffers[idx][int(offset)+i].record
-						// If you were the one who received this client req, you should respond to it
-						if idx == int(server.replicaID) {
-							server.serverBuffers[idx][int(offset)+i].commitResp <- cutGSN
-						}
-						server.mu.Unlock()
-						server.clientSubsResponseChan <- cutGSN
-						cutGSN++
-					}
-				}
-				continue
-			}
-			// Update the gsn
-			for i, r := range currentShardCut {
-				cut, in := server.lastCommittedCut[int32(shardID)]
-				if !in {
-					continue
-				}
-				diff := r - cut.Cut[i]
-				cutGSN += diff
-			}
-		}
+		// cutGSN := in.CommittedCut.StartGSN
+		//		for _, shardID := range shardIDs {
+		//			currentShardCut := in.CommittedCut.Cut[int32(shardID)]
+		//			if int(server.shardID) == shardID {
+		//				// Last committed cut for this server
+		//				var lastSequencedCut []int32
+		//				// It's possible that this is the first time we are seeing this registered shard
+		//				// come back in a cut.
+		//				lastSequencedCutWrapper, isBound := server.lastCommittedCut.Cut[int32(shardID)]
+		//				if isBound {
+		//					//lastSequencedCut = lastSequencedCutWrapper
+		//				}
+		//				for idx, r := range currentShardCut {
+		//					var offset int32
+		//					// If this is the first time we have seen this shard, initialize the previously
+		//					// seen committed cut to be the zero vector
+		//					if lastSequencedCut != nil {
+		//						offset = lastSequencedCut[idx]
+		//					} else {
+		//						offset = 0
+		//					}
+		//					numLogs := int(r - offset)
+		//					for i := 0; i < numLogs; i++ {
+		//						server.mu.Lock()
+		//						if idx == int(server.replicaID) {
+		//							err := server.disk.Commit(server.serverBuffers[idx][int(offset)+i].lsn, int64(cutGSN))
+		//							if err != nil {
+		//								// TODO handle error
+		//								log.Printf(err.Error())
+		//							}
+		//						}
+		//						server.serverBuffers[idx][int(offset)+i].gsn = cutGSN
+		//						server.committedRecords[cutGSN] = server.serverBuffers[idx][int(offset)+i].record
+		//						// If you were the one who received this client req, you should respond to it
+		//						if idx == int(server.replicaID) {
+		//							server.serverBuffers[idx][int(offset)+i].commitResp <- cutGSN
+		//						}
+		//						server.mu.Unlock()
+		//						server.clientSubsResponseChan <- cutGSN
+		//						cutGSN++
+		//					}
+		//				}
+		//				continue
+		//			}
+		//			// Update the gsn
+		//			for i, r := range currentShardCut {
+		//				cut, in := server.lastCommittedCut[int32(shardID)]
+		//				if !in {
+		//					continue
+		//				}
+		//				diff := r - cut.Cut[i]
+		//				cutGSN += diff
+		//			}
+		//		}
 
 		// update stored cut & log number
-		server.lastCommittedCut = in.CommitedCuts
+		server.lastCommittedCut = *in.CommittedCut
 	}
 }
 
@@ -412,18 +401,6 @@ func (server *dataServer) setupOrderLayerComunication() {
 	client := orderpb.NewOrderClient(conn)
 	server.orderConnection = client
 
-	req := &orderpb.RegisterRequest{
-		ShardID:   server.shardID,
-		ReplicaID: server.replicaID,
-	}
-	resp, err := client.Register(context.Background(), req)
-	if err != nil {
-		log.Printf(err.Error())
-	}
-	server.viewMu.Lock()
-	server.viewID = resp.ViewID
-	server.viewMu.Unlock()
-
 	stream, err := client.Report(context.Background())
 	if err != nil {
 		log.Printf(err.Error())
@@ -489,9 +466,9 @@ func (server *dataServer) createIntershardPodConnection(podIP string, ch chan da
 	for req := range ch {
 		if err := stream.Send(&req); err != nil {
 			log.Printf(err.Error())
-			req := &orderpb.FinalizeRequest{
-				ShardIDs: []int32{server.shardID},
+			req := &orderpb.FinalizeEntry{
 				Limit:    0,
+				ShardIDs: []int32{server.shardID},
 			}
 			if _, err := server.orderConnection.Finalize(context.Background(), req); err != nil {
 				log.Printf(err.Error())
